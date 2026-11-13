@@ -1,7 +1,9 @@
 import React, { createContext, startTransition, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
   User,
+  getRedirectResult,
   onAuthStateChanged,
+  sendEmailVerification,
   signInWithPopup,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
@@ -10,7 +12,7 @@ import {
   updateProfile,
 } from 'firebase/auth';
 import { collection, doc, onSnapshot, query, where } from 'firebase/firestore';
-import { auth, db, googleAuthProvider } from '../lib/firebase.ts';
+import { auth, db, googleAuthProvider, testFirestoreConnection } from '../lib/firebase.ts';
 import {
   INITIAL_BANNERS,
   INITIAL_BATCHES,
@@ -107,6 +109,7 @@ interface AppContextValue {
   signInWithEmail: (email: string, password: string) => Promise<{ role: UserRole; email: string }>;
   registerWithEmail: (email: string, password: string, name: string) => Promise<{ role: UserRole; email: string }>;
   sendPasswordReset: (email: string) => Promise<void>;
+  resendVerificationEmail: () => Promise<void>;
   logout: () => Promise<void>;
   refreshSession: () => Promise<void>;
 }
@@ -286,6 +289,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const inFlightSyncRef = useRef<{ uid: string; promise: Promise<{ role: UserRole; email: string }> } | null>(null);
+  const pendingNameRef = useRef<string>('');
 
   const syncUser = useCallback(async (user: User): Promise<{ role: UserRole; email: string }> => {
     if (inFlightSyncRef.current && inFlightSyncRef.current.uid === user.uid) {
@@ -295,7 +299,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       try {
         const token = await user.getIdToken();
         setIdToken(token);
-        const result = await syncUserSession(user);
+        const preferredName = pendingNameRef.current || undefined;
+        const result = await syncUserSession(user, preferredName);
+        if (preferredName) pendingNameRef.current = '';
         setUserProfile(result.profile);
         setRole(result.role);
         setStudentProfile(result.studentProfile);
@@ -318,6 +324,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    const connTimer = setTimeout(() => {
+      testFirestoreConnection();
+    }, 1500);
+
+    getRedirectResult(auth).catch((err) => {
+      console.warn('Auth redirect check:', err?.code || err?.message || err);
+    });
+
     const unsub = onAuthStateChanged(auth, async (user) => {
       setFirebaseUser(user);
       if (user) {
@@ -339,7 +353,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
       setAuthReady(true);
     });
-    return () => unsub();
+    return () => {
+      clearTimeout(connTimer);
+      unsub();
+    };
   }, [syncUser]);
 
   // Student presence heartbeat every 45 seconds
@@ -537,20 +554,40 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signInWithEmail = async (email: string, password: string) => {
-    const cred = await signInWithEmailAndPassword(auth, email.trim(), password);
+    const cleanEmail = email.trim();
+    const cred = await signInWithEmailAndPassword(auth, cleanEmail, password);
     return await syncUser(cred.user);
   };
 
   const registerWithEmail = async (email: string, password: string, name: string) => {
-    const cred = await createUserWithEmailAndPassword(auth, email.trim(), password);
-    if (name.trim()) {
-      await updateProfile(cred.user, { displayName: name.trim() });
+    const cleanEmail = email.trim();
+    const cleanName = name.trim();
+    pendingNameRef.current = cleanName;
+    try {
+      const cred = await createUserWithEmailAndPassword(auth, cleanEmail, password);
+      if (cleanName) {
+        await updateProfile(cred.user, { displayName: cleanName });
+      }
+      sendEmailVerification(cred.user).catch(() => {});
+      return await syncUser(cred.user);
+    } catch (err) {
+      pendingNameRef.current = '';
+      throw err;
     }
-    return await syncUser(cred.user);
   };
 
   const sendPasswordReset = async (email: string) => {
-    await sendPasswordResetEmail(auth, email.trim());
+    const cleanEmail = email.trim();
+    if (!cleanEmail) {
+      throw Object.assign(new Error('Email required'), { code: 'auth/invalid-email' });
+    }
+    await sendPasswordResetEmail(auth, cleanEmail);
+  };
+
+  const resendVerificationEmail = async () => {
+    if (auth.currentUser && !auth.currentUser.emailVerified) {
+      await sendEmailVerification(auth.currentUser);
+    }
   };
 
   const logout = async () => {
@@ -566,11 +603,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setNotifications([]);
     setDrawerOpen(false);
     navigate('/');
-    showToast('Signed out securely.', 'info');
+    showToast('Aap safely logout ho gaye hain.', 'info');
   };
 
   const refreshSession = async () => {
     if (auth.currentUser) {
+      await auth.currentUser.reload();
+      await auth.currentUser.getIdToken(true);
       await syncUser(auth.currentUser);
     }
   };
@@ -628,6 +667,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       signInWithEmail,
       registerWithEmail,
       sendPasswordReset,
+      resendVerificationEmail,
       logout,
       refreshSession,
     }),

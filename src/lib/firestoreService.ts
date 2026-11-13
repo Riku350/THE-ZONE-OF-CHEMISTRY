@@ -140,13 +140,14 @@ export async function seedInitialCatalogIfEmpty(): Promise<void> {
   }
 }
 
-export async function syncUserSession(user: User): Promise<{
+export async function syncUserSession(user: User, preferredName?: string): Promise<{
   profile: UserProfile;
   role: UserRole;
   studentProfile: StudentRecord | null;
 }> {
   const email = (user.email || '').toLowerCase();
   const isVerified = user.emailVerified === true;
+  const resolvedName = preferredName?.trim() || user.displayName || email.split('@')[0] || 'Student';
   let role: UserRole = 'student';
 
   try {
@@ -201,13 +202,15 @@ export async function syncUserSession(user: User): Promise<{
         await setDoc(userRef, {
           uid: user.uid,
           email,
-          name: user.displayName || email.split('@')[0] || 'Student',
+          name: resolvedName,
           role: 'student',
           status: 'active',
           isBlocked: false,
           photoUrl: user.photoURL || '',
           createdAt: new Date().toISOString(),
         });
+      } else if (preferredName?.trim() && userSnap?.exists()) {
+        await setDoc(userRef, { name: preferredName.trim(), updatedAt: new Date().toISOString() }, { merge: true }).catch(() => {});
       }
     }
 
@@ -215,7 +218,7 @@ export async function syncUserSession(user: User): Promise<{
     let profile: UserProfile = (finalUserSnap?.data() as UserProfile) || {
       uid: user.uid,
       email,
-      name: user.displayName || email.split('@')[0] || 'User',
+      name: resolvedName,
       role,
       status: 'active',
       photoUrl: user.photoURL || '',
