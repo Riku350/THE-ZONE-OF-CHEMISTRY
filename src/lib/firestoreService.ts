@@ -341,6 +341,20 @@ export async function syncUserSession(
         }
       }
 
+      // Fallback: check direct students/{uid} doc before creating a new record
+      if (!studentProfile) {
+        const directSnap = await getDoc(doc(db, 'students', user.uid)).catch(() => null);
+        if (directSnap && directSnap.exists()) {
+          const data = directSnap.data() as Omit<StudentRecord, 'id'>;
+          if (!data.uid && email && isVerified) {
+            await updateDoc(directSnap.ref, { uid: user.uid }).catch(() => {});
+            studentProfile = { id: directSnap.id, ...data, uid: user.uid };
+          } else if (data.uid === user.uid) {
+            studentProfile = { id: directSnap.id, ...data };
+          }
+        }
+      }
+
       // Auto-create student profile record with unique Student ID for newly signed-up students
       if (!studentProfile && role === 'student') {
         const assignedStudentId = profile.studentId || generateUniqueStudentId(user.uid);
@@ -372,7 +386,7 @@ export async function syncUserSession(
           createdAt: now,
           updatedAt: now,
         };
-        await setDoc(doc(db, 'students', user.uid), studentDoc, { merge: true });
+        await setDoc(doc(db, 'students', user.uid), studentDoc);
         studentProfile = { id: user.uid, ...studentDoc };
       }
     }

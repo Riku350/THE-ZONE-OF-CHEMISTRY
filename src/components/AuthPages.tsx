@@ -176,6 +176,7 @@ function getEmailAuthError(
 
 export function StudentLoginPage() {
   const {
+    currentPath,
     authReady,
     firebaseUser,
     role,
@@ -210,16 +211,31 @@ export function StudentLoginPage() {
   const recaptchaRef = useRef<RecaptchaVerifier | null>(null);
 
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [errorNotice, setErrorNotice] = useState('');
   const [resetSentMsg, setResetSentMsg] = useState('');
 
   const routeByRole = useCallback(
     (r: string) => {
-      if (r === 'super_admin' || r === 'admin') navigate('/admin');
-      else if (r === 'teacher') navigate('/teacher');
-      else navigate('/student');
+      if (r === 'super_admin' || r === 'admin') {
+        navigate('/admin');
+        return;
+      }
+      if (r === 'teacher') {
+        navigate('/teacher');
+        return;
+      }
+      const qIdx = currentPath.indexOf('?');
+      if (qIdx !== -1) {
+        const redirectTarget = new URLSearchParams(currentPath.slice(qIdx + 1)).get('redirect');
+        if (redirectTarget && redirectTarget.startsWith('/') && !redirectTarget.startsWith('//')) {
+          navigate(redirectTarget);
+          return;
+        }
+      }
+      navigate('/student');
     },
-    [navigate]
+    [currentPath, navigate]
   );
 
   useEffect(() => {
@@ -468,9 +484,12 @@ export function StudentLoginPage() {
   async function handleGoogleLogin() {
     setErrorNotice('');
     setResetSentMsg('');
-    setLoading(true);
+    setGoogleLoading(true);
     try {
       const res = await signInWithGoogle();
+      if (!res.email && !res.studentId) {
+        return;
+      }
       const idNote = res.studentId && res.role === 'student' ? ` Student ID: ${res.studentId}` : '';
       showToast(`Gmail login successful!${idNote}`, 'success');
       routeByRole(res.role);
@@ -479,7 +498,7 @@ export function StudentLoginPage() {
       setErrorNotice(parsed.message);
       showToast(parsed.message, 'error');
     } finally {
-      setLoading(false);
+      setGoogleLoading(false);
     }
   }
 
@@ -492,7 +511,7 @@ export function StudentLoginPage() {
             <p className="text-xs font-semibold text-blue-700 dark:text-sky-400 mb-1">Student &amp; Teacher Portal</p>
             <h2 className="text-2xl font-bold text-slate-900 dark:text-white">
               {authTab === 'otp'
-                ? 'Login with Mobile OTP or Gmail'
+                ? 'Login with Gmail or Mobile OTP'
                 : mode === 'login'
                 ? 'Sign In to Your Portal'
                 : mode === 'register'
@@ -501,7 +520,7 @@ export function StudentLoginPage() {
             </h2>
             <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
               {authTab === 'otp'
-                ? 'Direct Gmail ya 10-digit Mobile OTP se turant portal kholein.'
+                ? 'Direct Gmail se 1-click me login karein ya Mobile OTP use karein.'
                 : mode === 'register'
                 ? 'Apna Naam, Mobile Number ya Gmail daalkar turant Student Account banayein.'
                 : mode === 'reset'
@@ -513,12 +532,12 @@ export function StudentLoginPage() {
           {/* Direct Gmail (Google) Sign-In */}
           <button
             type="button"
-            disabled={loading}
+            disabled={loading || googleLoading}
             onClick={handleGoogleLogin}
-            className="w-full min-h-[44px] py-2.5 px-4 text-sm font-semibold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 rounded-xl flex items-center justify-center gap-2.5 shadow-xs transition-colors disabled:opacity-60"
+            className="w-full min-h-[48px] py-2.5 px-4 text-sm font-bold text-slate-900 dark:text-white bg-blue-50/70 dark:bg-slate-800 hover:bg-blue-100/80 dark:hover:bg-slate-700 border-2 border-blue-200 dark:border-blue-800 rounded-xl flex items-center justify-center gap-2.5 shadow-xs transition-colors disabled:opacity-60"
           >
             <GoogleIcon />
-            <span>Continue with Gmail (Google)</span>
+            <span>{googleLoading ? 'Connecting to Gmail...' : 'Continue with Gmail (Google)'}</span>
           </button>
 
           <div className="my-4 flex items-center gap-3">

@@ -31,6 +31,7 @@ import { ResilientImage } from './ResilientImage.tsx';
 import { BackBar } from './BackBar.tsx';
 import { ImageCropModal } from './ImageCropModal.tsx';
 import { ChemistryVideoPlayer } from './ChemistryVideoPlayer.tsx';
+import { LearningProgress } from './LearningProgress.tsx';
 import { uploadMediaFile } from '../lib/mediaUpload.ts';
 import { exportHtmlToPrintPdf } from '../lib/exportUtils.ts';
 import {
@@ -774,6 +775,20 @@ export function StudentPortal() {
                     </button>
                   </div>
 
+                  <LearningProgress
+                    student={student}
+                    courses={courses}
+                    enrollments={enrollments}
+                    lectures={lectures}
+                    lectureProgress={lectureProgress}
+                    tests={tests}
+                    testResults={testResults}
+                    onOpenLectures={() => setTab('lectures')}
+                    onOpenTests={() => setTab('tests')}
+                    onOpenCourse={(courseId) => navigate(`/courses/${courseId}`)}
+                    onExploreCourses={() => navigate('/courses')}
+                  />
+
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
                       <h3 className="text-base font-bold text-slate-900 dark:text-white mb-3 flex items-center gap-2">
@@ -826,6 +841,20 @@ export function StudentPortal() {
                       Explore All Courses →
                     </button>
                   </div>
+
+                  <LearningProgress
+                    student={student}
+                    courses={courses}
+                    enrollments={enrollments}
+                    lectures={lectures}
+                    lectureProgress={lectureProgress}
+                    tests={tests}
+                    testResults={testResults}
+                    onOpenLectures={() => setTab('lectures')}
+                    onOpenTests={() => setTab('tests')}
+                    onOpenCourse={(courseId) => navigate(`/courses/${courseId}`)}
+                    onExploreCourses={() => navigate('/courses')}
+                  />
 
                   {student && (
                     <div className="p-5 rounded-2xl bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900 flex flex-col sm:flex-row sm:items-center justify-between gap-4">

@@ -3,11 +3,13 @@ import {
   ConfirmationResult,
   RecaptchaVerifier,
   User,
+  getRedirectResult,
   onAuthStateChanged,
   sendEmailVerification,
   signInWithEmailAndPassword,
   signInWithPhoneNumber,
   signInWithPopup,
+  signInWithRedirect,
   createUserWithEmailAndPassword,
   sendPasswordResetEmail,
   signOut,
@@ -355,6 +357,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       testFirestoreConnection();
     }, 1500);
 
+    // Resolve any pending Google redirect sign-in on standalone mobile browsers
+    getRedirectResult(auth)
+      .then((res) => {
+        if (res?.user) {
+          syncUser(res.user).catch(() => {});
+        }
+      })
+      .catch(() => {});
+
     const unsub = onAuthStateChanged(auth, async (user) => {
       setFirebaseUser(user);
       if (user) {
@@ -572,8 +583,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   );
 
   const signInWithGoogle = async () => {
-    const cred = await signInWithPopup(auth, googleAuthProvider);
-    return await syncUser(cred.user);
+    try {
+      const cred = await signInWithPopup(auth, googleAuthProvider);
+      return await syncUser(cred.user);
+    } catch (err: any) {
+      const isTopWindow = typeof window !== 'undefined' && window.self === window.top;
+      if (isTopWindow && (err?.code === 'auth/popup-blocked' || err?.code === 'auth/operation-not-supported-in-this-environment')) {
+        await signInWithRedirect(auth, googleAuthProvider);
+        return { role: 'student' as UserRole, email: '', studentId: undefined };
+      }
+      throw err;
+    }
   };
 
   const signInWithEmail = async (identifier: string, password: string) => {

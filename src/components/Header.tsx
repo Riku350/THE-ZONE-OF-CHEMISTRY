@@ -166,17 +166,22 @@ export function Header() {
             <button
               type="button"
               onClick={() => navigate(portalPath)}
-              aria-label="Student Profile"
-              className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              aria-label={firebaseUser ? 'Student Profile' : 'Student Login'}
+              className="min-h-[44px] px-1.5 sm:px-2 flex items-center justify-center gap-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
             >
               {avatarUrl ? (
-                <div className="w-8 h-8 rounded-full overflow-hidden border border-blue-700/40">
+                <div className="w-8 h-8 rounded-full overflow-hidden border border-blue-700/40 shrink-0">
                   <ResilientImage src={avatarUrl} alt="Profile" className="w-full h-full object-cover" />
                 </div>
               ) : (
-                <div className="w-8 h-8 rounded-full bg-blue-700 text-white flex items-center justify-center">
+                <div className="w-8 h-8 rounded-full bg-blue-700 text-white flex items-center justify-center shrink-0">
                   <User className="w-4 h-4" />
                 </div>
+              )}
+              {!firebaseUser && (
+                <span className="hidden sm:inline text-xs font-bold text-slate-800 dark:text-slate-100 pr-1 whitespace-nowrap">
+                  Login
+                </span>
               )}
             </button>
           </div>
