@@ -1,0 +1,360 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated user account, server-verified role, and block status",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 200 },
+        "name": { "type": "string", "maxLength": 120 },
+        "role": { "type": "string", "enum": ["super_admin", "admin", "teacher", "student"] },
+        "status": { "type": "string", "enum": ["active", "inactive"] },
+        "photoUrl": { "type": "string", "maxLength": 1000000 },
+        "phone": { "type": "string", "maxLength": 30 },
+        "address": { "type": "string", "maxLength": 400 },
+        "dob": { "type": "string", "maxLength": 30 },
+        "studentClass": { "type": "string", "maxLength": 40 },
+        "board": { "type": "string", "maxLength": 40 },
+        "examGoal": { "type": "string", "maxLength": 80 },
+        "isBlocked": { "type": "boolean" },
+        "blockType": { "type": "string", "enum": ["temporary", "permanent"] },
+        "blockReason": { "type": "string", "maxLength": 500 },
+        "blockedUntil": { "type": "string", "maxLength": 60 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["uid", "email", "role", "status"]
+    },
+    "StudentRecord": {
+      "title": "StudentRecord",
+      "description": "Enrolled student academic and batch profile",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "uid": { "type": "string", "maxLength": 128 },
+        "admissionId": { "type": "string", "maxLength": 40 },
+        "name": { "type": "string", "maxLength": 120 },
+        "fatherName": { "type": "string", "maxLength": 120 },
+        "motherName": { "type": "string", "maxLength": 120 },
+        "email": { "type": "string", "maxLength": 200 },
+        "mobile": { "type": "string", "maxLength": 20 },
+        "whatsapp": { "type": "string", "maxLength": 20 },
+        "studentClass": { "type": "string", "maxLength": 40 },
+        "board": { "type": "string", "maxLength": 40 },
+        "courseId": { "type": "string", "maxLength": 128 },
+        "courseName": { "type": "string", "maxLength": 160 },
+        "batchId": { "type": "string", "maxLength": 128 },
+        "batchName": { "type": "string", "maxLength": 120 },
+        "photoUrl": { "type": "string", "maxLength": 1000000 },
+        "address": { "type": "string", "maxLength": 400 },
+        "status": { "type": "string", "enum": ["active", "inactive"] },
+        "isBlocked": { "type": "boolean" }
+      },
+      "required": ["admissionId", "name", "email", "mobile", "status"]
+    },
+    "AdmissionApplication": {
+      "title": "AdmissionApplication",
+      "description": "Student admission request submitted online",
+      "type": "object",
+      "properties": {
+        "admissionId": { "type": "string", "maxLength": 40 },
+        "fullName": { "type": "string", "maxLength": 120 },
+        "fatherName": { "type": "string", "maxLength": 120 },
+        "motherName": { "type": "string", "maxLength": 120 },
+        "dob": { "type": "string", "maxLength": 30 },
+        "gender": { "type": "string", "maxLength": 20 },
+        "mobile": { "type": "string", "maxLength": 20 },
+        "whatsapp": { "type": "string", "maxLength": 20 },
+        "email": { "type": "string", "maxLength": 200 },
+        "address": { "type": "string", "maxLength": 500 },
+        "schoolName": { "type": "string", "maxLength": 200 },
+        "studentClass": { "type": "string", "maxLength": 40 },
+        "board": { "type": "string", "maxLength": 40 },
+        "courseId": { "type": "string", "maxLength": 128 },
+        "batchId": { "type": "string", "maxLength": 128 },
+        "previousMarks": { "type": "string", "maxLength": 40 },
+        "photoUrl": { "type": "string", "maxLength": 1000000 },
+        "guardianContact": { "type": "string", "maxLength": 30 },
+        "additionalInfo": { "type": "string", "maxLength": 1000 },
+        "requestedInfoMessage": { "type": "string", "maxLength": 1000 },
+        "status": { "type": "string", "enum": ["pending", "under_review", "approved", "rejected"] }
+      },
+      "required": ["admissionId", "fullName", "mobile", "email", "status"]
+    },
+    "Course": {
+      "title": "Course",
+      "description": "Chemistry course offered at the institute",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "maxLength": 160 },
+        "category": { "type": "string", "maxLength": 80 },
+        "examTrack": { "type": "string", "maxLength": 80 },
+        "description": { "type": "string", "maxLength": 2000 },
+        "duration": { "type": "string", "maxLength": 80 },
+        "fees": { "type": "number" },
+        "mrpPrice": { "type": "number" },
+        "discountPercent": { "type": "number" },
+        "statusLabel": { "type": "string", "maxLength": 60 },
+        "subjects": { "type": "string", "maxLength": 200 },
+        "batchAvailability": { "type": "string", "maxLength": 200 },
+        "liveSchedule": { "type": "string", "maxLength": 200 },
+        "teacherName": { "type": "string", "maxLength": 120 },
+        "syllabus": { "type": "array" },
+        "chapters": { "type": "array" },
+        "imageUrl": { "type": "string", "maxLength": 1000000 },
+        "published": { "type": "boolean" }
+      },
+      "required": ["title", "duration", "fees", "published"]
+    },
+    "Batch": {
+      "title": "Batch",
+      "description": "Scheduled classroom or online batch",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 120 },
+        "timing": { "type": "string", "maxLength": 100 },
+        "mode": { "type": "string", "enum": ["Offline", "Online", "Hybrid"] },
+        "category": { "type": "string", "maxLength": 80 },
+        "courseId": { "type": "string", "maxLength": 128 },
+        "courseName": { "type": "string", "maxLength": 160 },
+        "teacherName": { "type": "string", "maxLength": 120 },
+        "capacity": { "type": "number" },
+        "enrolledCount": { "type": "number" },
+        "fees": { "type": "number" },
+        "days": { "type": "string", "maxLength": 120 },
+        "posterUrl": { "type": "string", "maxLength": 1000000 }
+      },
+      "required": ["name", "timing", "capacity"]
+    },
+    "PosterItem": {
+      "title": "PosterItem",
+      "description": "Uploaded course, teacher, banner, batch, or material poster",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "maxLength": 160 },
+        "category": { "type": "string", "maxLength": 80 },
+        "targetType": { "type": "string", "maxLength": 80 },
+        "targetId": { "type": "string", "maxLength": 128 },
+        "imageUrl": { "type": "string", "maxLength": 1000000 },
+        "published": { "type": "boolean" },
+        "sortOrder": { "type": "number" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["title", "targetType", "imageUrl", "published"]
+    },
+    "BannerItem": {
+      "title": "BannerItem",
+      "description": "Dynamic homepage slider banner managed by Admin",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "maxLength": 160 },
+        "subtitle": { "type": "string", "maxLength": 300 },
+        "ctaLabel": { "type": "string", "maxLength": 60 },
+        "ctaPath": { "type": "string", "maxLength": 160 },
+        "imageUrl": { "type": "string", "maxLength": 1000000 },
+        "published": { "type": "boolean" },
+        "startDate": { "type": "string", "maxLength": 30 },
+        "endDate": { "type": "string", "maxLength": 30 },
+        "sortOrder": { "type": "number" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["title", "imageUrl", "published"]
+    },
+    "PublicFacultyCard": {
+      "title": "PublicFacultyCard",
+      "description": "Public faculty showcase profile without private PII",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 120 },
+        "qualification": { "type": "string", "maxLength": 200 },
+        "subjects": { "type": "string", "maxLength": 200 },
+        "experience": { "type": "string", "maxLength": 120 },
+        "description": { "type": "string", "maxLength": 1200 },
+        "photoUrl": { "type": "string", "maxLength": 1000000 },
+        "posterUrl": { "type": "string", "maxLength": 1000000 },
+        "active": { "type": "boolean" }
+      },
+      "required": ["name", "subjects", "active"]
+    },
+    "EnrollmentRecord": {
+      "title": "EnrollmentRecord",
+      "description": "Student course enrollment & purchase record",
+      "type": "object",
+      "properties": {
+        "studentUid": { "type": "string", "maxLength": 128 },
+        "studentName": { "type": "string", "maxLength": 120 },
+        "studentEmail": { "type": "string", "maxLength": 200 },
+        "courseId": { "type": "string", "maxLength": 128 },
+        "courseTitle": { "type": "string", "maxLength": 160 },
+        "batchId": { "type": "string", "maxLength": 128 },
+        "orderId": { "type": "string", "maxLength": 128 },
+        "amountPaid": { "type": "number" },
+        "status": { "type": "string", "enum": ["Active", "Pending"] },
+        "enrolledAt": { "type": "string" }
+      },
+      "required": ["studentUid", "courseId", "courseTitle", "status"]
+    },
+    "OrderRecord": {
+      "title": "OrderRecord",
+      "description": "Cashfree course and fee checkout order ledger",
+      "type": "object",
+      "properties": {
+        "orderId": { "type": "string", "maxLength": 128 },
+        "cfOrderId": { "type": "string", "maxLength": 128 },
+        "studentUid": { "type": "string", "maxLength": 128 },
+        "studentName": { "type": "string", "maxLength": 120 },
+        "studentEmail": { "type": "string", "maxLength": 200 },
+        "courseId": { "type": "string", "maxLength": 128 },
+        "courseTitle": { "type": "string", "maxLength": 160 },
+        "amount": { "type": "number" },
+        "currency": { "type": "string", "maxLength": 10 },
+        "status": { "type": "string", "enum": ["CREATED", "PAID", "FAILED", "PENDING", "CANCELLED"] },
+        "refundStatus": { "type": "string", "enum": ["None", "Requested", "Refunded"] },
+        "receiptNo": { "type": "string", "maxLength": 60 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["orderId", "studentUid", "courseId", "amount", "status"]
+    },
+    "DoubtItem": {
+      "title": "DoubtItem",
+      "description": "Student chemistry doubts and teacher replies",
+      "type": "object",
+      "properties": {
+        "studentUid": { "type": "string", "maxLength": 128 },
+        "studentName": { "type": "string", "maxLength": 120 },
+        "courseId": { "type": "string", "maxLength": 128 },
+        "courseTitle": { "type": "string", "maxLength": 160 },
+        "chapter": { "type": "string", "maxLength": 160 },
+        "question": { "type": "string", "maxLength": 2000 },
+        "reply": { "type": "string", "maxLength": 2000 },
+        "repliedBy": { "type": "string", "maxLength": 120 },
+        "status": { "type": "string", "enum": ["Open", "Answered"] },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["studentUid", "courseId", "question", "status"]
+    },
+    "StudentActivityRecord": {
+      "title": "StudentActivityRecord",
+      "description": "Real-time student online presence, login count, and study metrics",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "studentName": { "type": "string", "maxLength": 120 },
+        "email": { "type": "string", "maxLength": 200 },
+        "isOnline": { "type": "boolean" },
+        "deviceType": { "type": "string", "maxLength": 80 },
+        "lastActive": { "type": "string" },
+        "lastLoginAt": { "type": "string" },
+        "totalLoginCount": { "type": "number" },
+        "studyTimeMinutes": { "type": "number" }
+      },
+      "required": ["uid", "isOnline", "lastActive"]
+    },
+    "DownloadRecord": {
+      "title": "DownloadRecord",
+      "description": "Student saved offline notes & downloads history",
+      "type": "object",
+      "properties": {
+        "studentUid": { "type": "string", "maxLength": 128 },
+        "materialId": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 200 },
+        "category": { "type": "string", "maxLength": 80 },
+        "chapter": { "type": "string", "maxLength": 120 },
+        "fileUrl": { "type": "string", "maxLength": 1000000 },
+        "downloadedAt": { "type": "string" }
+      },
+      "required": ["studentUid", "materialId", "title", "fileUrl"]
+    },
+    "Notice": {
+      "title": "Notice",
+      "description": "Live announcement published on the institute notice board",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "maxLength": 200 },
+        "category": { "type": "string", "maxLength": 60 },
+        "content": { "type": "string", "maxLength": 2000 },
+        "date": { "type": "string", "maxLength": 40 },
+        "imageUrl": { "type": "string", "maxLength": 1000000 },
+        "important": { "type": "boolean" },
+        "published": { "type": "boolean" }
+      },
+      "required": ["title", "category", "content", "date", "published"]
+    },
+    "InstituteResult": {
+      "title": "InstituteResult",
+      "description": "Topper achievement displayed on the website",
+      "type": "object",
+      "properties": {
+        "studentName": { "type": "string", "maxLength": 120 },
+        "examName": { "type": "string", "maxLength": 120 },
+        "achievement": { "type": "string", "maxLength": 200 },
+        "marksOrRank": { "type": "string", "maxLength": 80 },
+        "year": { "type": "string", "maxLength": 10 },
+        "photoUrl": { "type": "string", "maxLength": 1000000 }
+      },
+      "required": ["studentName", "examName", "marksOrRank", "year"]
+    },
+    "GalleryItem": {
+      "title": "GalleryItem",
+      "description": "Photo gallery item uploaded by admin",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "maxLength": 160 },
+        "category": { "type": "string", "maxLength": 60 },
+        "album": { "type": "string", "maxLength": 80 },
+        "imageUrl": { "type": "string", "maxLength": 1000000 },
+        "published": { "type": "boolean" },
+        "featured": { "type": "boolean" }
+      },
+      "required": ["title", "category", "imageUrl", "published"]
+    },
+    "InstituteSettings": {
+      "title": "InstituteSettings",
+      "description": "CMS settings for homepage, teacher bio, contact info, and theme",
+      "type": "object",
+      "properties": {
+        "instituteName": { "type": "string", "maxLength": 120 },
+        "tagline": { "type": "string", "maxLength": 200 },
+        "heroHeading": { "type": "string", "maxLength": 200 },
+        "heroSubheading": { "type": "string", "maxLength": 200 },
+        "heroBannerUrl": { "type": "string", "maxLength": 1000000 },
+        "logoUrl": { "type": "string", "maxLength": 1000000 },
+        "directorName": { "type": "string", "maxLength": 120 },
+        "directorPhotoUrl": { "type": "string", "maxLength": 1000000 },
+        "directorExperience": { "type": "string", "maxLength": 120 },
+        "directorQualification": { "type": "string", "maxLength": 200 },
+        "directorSubjects": { "type": "string", "maxLength": 200 },
+        "directorPhilosophy": { "type": "string", "maxLength": 2000 },
+        "aboutText": { "type": "string", "maxLength": 3000 },
+        "address": { "type": "string", "maxLength": 300 },
+        "phone": { "type": "string", "maxLength": 40 },
+        "whatsapp": { "type": "string", "maxLength": 40 },
+        "email": { "type": "string", "maxLength": 120 },
+        "primaryColor": { "type": "string", "maxLength": 20 }
+      },
+      "required": ["instituteName", "directorName", "address"]
+    }
+  },
+  "firestore": {
+    "/users/{uid}": { "schema": { "$ref": "#/entities/UserProfile" }, "description": "User profiles and roles" },
+    "/students/{studentId}": { "schema": { "$ref": "#/entities/StudentRecord" }, "description": "Student records" },
+    "/admissions/{admissionId}": { "schema": { "$ref": "#/entities/AdmissionApplication" }, "description": "Online admissions" },
+    "/courses/{courseId}": { "schema": { "$ref": "#/entities/Course" }, "description": "Institute courses" },
+    "/batches/{batchId}": { "schema": { "$ref": "#/entities/Batch" }, "description": "Institute batches" },
+    "/posters/{posterId}": { "schema": { "$ref": "#/entities/PosterItem" }, "description": "Managed posters & covers" },
+    "/banners/{bannerId}": { "schema": { "$ref": "#/entities/BannerItem" }, "description": "Homepage banners" },
+    "/public_faculty/{facultyId}": { "schema": { "$ref": "#/entities/PublicFacultyCard" }, "description": "Public teacher showcase profiles" },
+    "/enrollments/{enrollmentId}": { "schema": { "$ref": "#/entities/EnrollmentRecord" }, "description": "Student course enrollments" },
+    "/orders/{orderId}": { "schema": { "$ref": "#/entities/OrderRecord" }, "description": "Cashfree payment orders" },
+    "/doubts/{doubtId}": { "schema": { "$ref": "#/entities/DoubtItem" }, "description": "Student course doubts & teacher answers" },
+    "/student_activity/{uid}": { "schema": { "$ref": "#/entities/StudentActivityRecord" }, "description": "Real-time student activity & online status" },
+    "/login_sessions/{sessionId}": { "schema": { "type": "object" }, "description": "Historical login sessions" },
+    "/certificates/{certId}": { "schema": { "type": "object" }, "description": "Issued completion certificates" },
+    "/deletion_requests/{reqId}": { "schema": { "type": "object" }, "description": "Student account deletion requests" },
+    "/student_downloads/{downloadId}": { "schema": { "$ref": "#/entities/DownloadRecord" }, "description": "Student saved downloads" },
+    "/notices/{noticeId}": { "schema": { "$ref": "#/entities/Notice" }, "description": "Notice board" },
+    "/results/{resultId}": { "schema": { "$ref": "#/entities/InstituteResult" }, "description": "Student topper results" },
+    "/gallery/{photoId}": { "schema": { "$ref": "#/entities/GalleryItem" }, "description": "Gallery items" },
+    "/institute_settings/{settingId}": { "schema": { "$ref": "#/entities/InstituteSettings" }, "description": "CMS settings" }
+  }
+}

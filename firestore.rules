@@ -1,0 +1,313 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global safety net: default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function userEmail() {
+      return request.auth.token.email != null ? request.auth.token.email.lower() : '';
+    }
+
+    function isSuperAdmin() {
+      return isVerified() && userEmail() == 'godrikuop@gmail.com';
+    }
+
+    function isAdmin() {
+      return isSuperAdmin() || (isVerified() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
+    }
+
+    function isTeacher() {
+      return isVerified() && userEmail() != '' && exists(/databases/$(database)/documents/teachers_by_email/$(userEmail()));
+    }
+
+    function isStaff() {
+      return isAdmin() || isTeacher();
+    }
+
+    function isNotBlocked() {
+      return isSignedIn() && (
+        !exists(/databases/$(database)/documents/users/$(request.auth.uid)) ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isBlocked != true
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Public catalog collections
+    match /institute_settings/{settingId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /courses/{courseId} {
+      allow get: if isValidId(courseId) && (resource.data.published == true || isStaff());
+      allow list: if resource.data.published == true || isStaff();
+      allow write: if isValidId(courseId) && isAdmin();
+    }
+
+    match /batches/{batchId} {
+      allow read: if true;
+      allow write: if isValidId(batchId) && isAdmin();
+    }
+
+    match /posters/{posterId} {
+      allow get: if isValidId(posterId) && (resource.data.published == true || isStaff());
+      allow list: if resource.data.published == true || isStaff();
+      allow write: if isValidId(posterId) && isAdmin();
+    }
+
+    match /banners/{bannerId} {
+      allow get: if isValidId(bannerId) && (resource.data.published == true || isStaff());
+      allow list: if resource.data.published == true || isStaff();
+      allow write: if isValidId(bannerId) && isAdmin();
+    }
+
+    match /public_faculty/{facultyId} {
+      allow get: if isValidId(facultyId) && (resource.data.active == true || isStaff());
+      allow list: if resource.data.active == true || isStaff();
+      allow write: if isValidId(facultyId) && isAdmin();
+    }
+
+    match /notices/{noticeId} {
+      allow get: if isValidId(noticeId) && (resource.data.published == true || isStaff());
+      allow list: if resource.data.published == true || isStaff();
+      allow write: if isValidId(noticeId) && isAdmin();
+    }
+
+    match /results/{resultId} {
+      allow read: if true;
+      allow write: if isValidId(resultId) && isAdmin();
+    }
+
+    match /gallery/{photoId} {
+      allow get: if isValidId(photoId) && (resource.data.published == true || isStaff());
+      allow list: if resource.data.published == true || isStaff();
+      allow write: if isValidId(photoId) && isAdmin();
+    }
+
+    match /timetable/{slotId} {
+      allow read: if true;
+      allow write: if isValidId(slotId) && isStaff();
+    }
+
+    // Learning content
+    match /live_classes/{classId} {
+      allow read: if true;
+      allow write: if isValidId(classId) && isStaff();
+    }
+
+    match /recorded_lectures/{lectureId} {
+      allow read: if true;
+      allow write: if isValidId(lectureId) && isStaff();
+    }
+
+    match /study_materials/{materialId} {
+      allow read: if true;
+      allow write: if isValidId(materialId) && isStaff();
+    }
+
+    match /homework/{hwId} {
+      allow read: if isNotBlocked();
+      allow write: if isValidId(hwId) && isStaff();
+    }
+
+    match /tests/{testId} {
+      allow read: if true;
+      allow write: if isValidId(testId) && isStaff();
+    }
+
+    // User profile & role records (role escalation prevented; Admins may manage block flags)
+    match /users/{uid} {
+      allow get: if isValidId(uid) && isSignedIn() && (request.auth.uid == uid || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isValidId(uid) && isSignedIn() && request.auth.uid == uid && (
+        isSuperAdmin() ||
+        (request.resource.data.uid == request.auth.uid && request.resource.data.role == 'student' && request.resource.data.isBlocked != true)
+      );
+      allow update: if isValidId(uid) && isSignedIn() && (
+        isSuperAdmin() ||
+        (isAdmin() && resource.data.role != 'super_admin' && request.resource.data.role == resource.data.role) ||
+        (request.auth.uid == uid && isNotBlocked() && request.resource.data.role == resource.data.role && request.resource.data.uid == resource.data.uid && request.resource.data.isBlocked == resource.data.isBlocked)
+      );
+      allow delete: if isSuperAdmin();
+    }
+
+    match /admins/{uid} {
+      allow get: if isValidId(uid) && isSignedIn() && (request.auth.uid == uid || isSuperAdmin());
+      allow list, write: if isSuperAdmin();
+    }
+
+    match /teachers_by_email/{teacherEmail} {
+      allow get: if isSignedIn() && (userEmail() == teacherEmail || isAdmin());
+      allow list, write: if isAdmin();
+    }
+
+    match /teachers/{teacherId} {
+      allow read: if isAdmin() || (isVerified() && (resource.data.uid == request.auth.uid || resource.data.email == userEmail()));
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || (
+        isVerified() &&
+        resource.data.email == userEmail() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['uid']) &&
+        request.resource.data.uid == request.auth.uid
+      );
+    }
+
+    // Student-owned PII & academic records (blocked users cannot access or mutate)
+    match /students/{studentId} {
+      allow read: if isStaff() || (isNotBlocked() && (
+        resource.data.uid == request.auth.uid ||
+        (isVerified() && resource.data.email == userEmail())
+      ));
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || (
+        isNotBlocked() && resource.data.uid == request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mobile', 'address', 'photoUrl', 'dob', 'studentClass', 'board', 'examGoal', 'updatedAt'])
+      ) || (
+        isNotBlocked() && isVerified() && resource.data.email == userEmail() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['uid']) &&
+        request.resource.data.uid == request.auth.uid
+      );
+    }
+
+    match /enrollments/{enrollmentId} {
+      allow read: if isStaff() || (isNotBlocked() && resource.data.studentUid == request.auth.uid);
+      allow create: if isAdmin() || (
+        isNotBlocked() &&
+        request.resource.data.studentUid == request.auth.uid &&
+        request.resource.data.keys().hasAll(['studentUid', 'courseId', 'courseTitle', 'status']) &&
+        (request.resource.data.status == 'Pending' || request.resource.data.amountPaid == 0)
+      );
+      allow update, delete: if isAdmin();
+    }
+
+    match /orders/{orderId} {
+      allow read: if isAdmin() || (isSignedIn() && resource.data.studentUid == request.auth.uid);
+      allow write: if isAdmin();
+    }
+
+    match /student_downloads/{downloadId} {
+      allow read: if isStaff() || (isNotBlocked() && resource.data.studentUid == request.auth.uid);
+      allow create: if isNotBlocked() && request.resource.data.studentUid == request.auth.uid;
+      allow update: if isStaff();
+      allow delete: if isAdmin() || (isNotBlocked() && resource.data.studentUid == request.auth.uid);
+    }
+
+    match /attendance/{recordId} {
+      allow read: if isStaff() || (isNotBlocked() && resource.data.studentUid == request.auth.uid);
+      allow write: if isValidId(recordId) && isStaff();
+    }
+
+    match /fee_records/{feeId} {
+      allow read: if isStaff() || (isNotBlocked() && resource.data.studentUid == request.auth.uid);
+      allow write: if isValidId(feeId) && isAdmin();
+    }
+
+    match /payments/{paymentId} {
+      allow read: if isStaff() || (isNotBlocked() && resource.data.studentUid == request.auth.uid);
+      allow write: if isValidId(paymentId) && isAdmin();
+    }
+
+    match /test_results/{resultId} {
+      allow read: if isStaff() || isNotBlocked();
+      allow create: if isStaff() || (isNotBlocked() && request.resource.data.studentUid == request.auth.uid);
+      allow update, delete: if isStaff();
+    }
+
+    match /homework_submissions/{subId} {
+      allow read: if isStaff() || (isNotBlocked() && resource.data.studentUid == request.auth.uid);
+      allow create, update: if isStaff() || (isNotBlocked() && request.resource.data.studentUid == request.auth.uid);
+      allow delete: if isAdmin();
+    }
+
+    match /lecture_progress/{progressId} {
+      allow read: if isStaff() || (isNotBlocked() && resource.data.studentUid == request.auth.uid);
+      allow create, update: if isStaff() || (isNotBlocked() && request.resource.data.studentUid == request.auth.uid);
+      allow delete: if isAdmin();
+    }
+
+    match /doubts/{doubtId} {
+      allow read: if isStaff() || (isNotBlocked() && resource.data.studentUid == request.auth.uid);
+      allow create: if isNotBlocked() && request.resource.data.studentUid == request.auth.uid && request.resource.data.question is string && request.resource.data.question.size() <= 2000;
+      allow update: if isStaff();
+      allow delete: if isAdmin() || (isNotBlocked() && resource.data.studentUid == request.auth.uid);
+    }
+
+    match /student_activity/{uid} {
+      allow read: if isStaff() || (isSignedIn() && request.auth.uid == uid);
+      allow create, update: if isAdmin() || (isNotBlocked() && request.auth.uid == uid && request.resource.data.uid == request.auth.uid);
+      allow delete: if isAdmin();
+    }
+
+    match /login_sessions/{sessionId} {
+      allow read: if isStaff() || (isSignedIn() && resource.data.uid == request.auth.uid);
+      allow create, update: if isAdmin() || (isNotBlocked() && request.resource.data.uid == request.auth.uid);
+      allow delete: if isAdmin();
+    }
+
+    match /certificates/{certId} {
+      allow read: if isStaff() || (isNotBlocked() && resource.data.studentUid == request.auth.uid);
+      allow create: if isAdmin() || (isNotBlocked() && request.resource.data.studentUid == request.auth.uid);
+      allow update, delete: if isAdmin();
+    }
+
+    match /deletion_requests/{reqId} {
+      allow read: if isAdmin() || (isSignedIn() && resource.data.studentUid == request.auth.uid);
+      allow create: if isSignedIn() && request.resource.data.studentUid == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+
+    match /notifications/{notifId} {
+      allow read: if isStaff() || (isNotBlocked() && (
+        resource.data.targetType == 'all' ||
+        resource.data.targetType == 'batch' ||
+        resource.data.targetType == 'course' ||
+        resource.data.targetUid == request.auth.uid
+      ));
+      allow write: if isStaff();
+    }
+
+    // Public online admissions & enquiries
+    match /admissions/{admissionId} {
+      allow create: if request.resource.data.keys().hasAll(['admissionId', 'fullName', 'mobile', 'email', 'status'])
+        && request.resource.data.status == 'pending'
+        && request.resource.data.fullName is string
+        && request.resource.data.fullName.size() <= 120;
+      allow read, update, delete: if isAdmin();
+    }
+
+    match /admission_status/{lookupKey} {
+      allow get: if isValidId(lookupKey);
+      allow list: if isAdmin();
+      allow create: if isValidId(lookupKey)
+        && request.resource.data.keys().hasAll(['admissionId', 'fullName', 'status'])
+        && request.resource.data.status == 'pending';
+      allow update, delete: if isAdmin();
+    }
+
+    match /enquiries/{enquiryId} {
+      allow create: if request.resource.data.keys().hasAll(['name', 'phone', 'message'])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() <= 120;
+      allow read, update, delete: if isAdmin();
+    }
+
+    match /admin_activity_logs/{logId} {
+      allow read: if isAdmin();
+      allow create: if isStaff();
+      allow update, delete: if false;
+    }
+  }
+}
