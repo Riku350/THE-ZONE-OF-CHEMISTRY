@@ -261,7 +261,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
       return;
     }
-    window.history.pushState({}, '', path);
+    const currentFull = (window.location.pathname + window.location.search) || '/';
+    if (currentFull !== path) {
+      window.history.pushState({}, '', path);
+    }
     setCurrentPath(path);
     setHistoryStack((prev) => {
       if (prev[prev.length - 1] === path) return prev;
@@ -361,10 +364,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     getRedirectResult(auth)
       .then((res) => {
         if (res?.user) {
-          syncUser(res.user).catch(() => {});
+          syncUser(res.user).catch((err) => {
+            console.error('Google redirect session sync error:', err);
+          });
         }
       })
-      .catch(() => {});
+      .catch((err: any) => {
+        const code = err?.code || '';
+        if (code && code !== 'auth/no-current-user') {
+          console.error('Google redirect auth error:', code, err?.message);
+          if (code === 'auth/unauthorized-domain') {
+            showToast(
+              `Domain (${window.location.hostname}) abhi Gmail login ke liye authorized nahi hai.`,
+              'error'
+            );
+          } else if (code === 'auth/account-exists-with-different-credential') {
+            showToast(
+              'Is Gmail se account pehle se bana hai. Original login method se sign in karein.',
+              'error'
+            );
+          } else {
+            showToast('Gmail login complete nahi ho paya. Kripya dobara try karein.', 'error');
+          }
+        }
+      });
 
     const unsub = onAuthStateChanged(auth, async (user) => {
       setFirebaseUser(user);

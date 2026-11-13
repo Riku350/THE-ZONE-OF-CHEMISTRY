@@ -127,7 +127,9 @@ function getEmailAuthError(
   }
   if (code === 'auth/unauthorized-domain') {
     const host = typeof window !== 'undefined' ? window.location.hostname : '';
-    console.warn('Auth unauthorized domain:', host);
+    console.warn(
+      `Auth unauthorized domain "${host}". Add it in Firebase Console → Authentication → Settings → Authorized domains (project gen-lang-client-0586369088).`
+    );
     if (isAdmin) {
       return {
         message: 'Is website domain par Google/OTP auth authorized nahi hai.',
@@ -136,8 +138,8 @@ function getEmailAuthError(
     }
     return {
       message: isGoogle
-        ? 'Is website link par Gmail login abhi enable ho raha hai. Tab tak aap Mobile/Email Password se login kar sakte hain.'
-        : 'Mobile OTP abhi is domain par available nahi hai. Kripya Gmail ya Mobile/Email Password se login karein.',
+        ? `Yeh domain (${host || 'current site'}) abhi Gmail login ke liye authorized nahi hai. Coaching admin se is domain ko authorize karne ko kahein.`
+        : `Yeh domain (${host || 'current site'}) abhi Mobile OTP ke liye authorized nahi hai. Coaching admin se is domain ko authorize karne ko kahein.`,
     };
   }
   if (
@@ -161,10 +163,30 @@ function getEmailAuthError(
       message: 'Aapka account abhi band hai. Kripya coaching office se sampark karein.',
     };
   }
+  if (code === 'auth/operation-not-supported-in-this-environment') {
+    return {
+      message: 'Is embedded browser me Gmail popup support nahi hai. Link ko direct Chrome ya Safari browser me kholein.',
+    };
+  }
+  if (code === 'auth/web-storage-unsupported') {
+    return {
+      message: 'Browser cookies ya storage blocked hain. Normal Chrome/Safari mode me cookies allow karke dobara try karein.',
+    };
+  }
+  if (code === 'auth/internal-error') {
+    console.error('Firebase Auth internal error:', err);
+    return {
+      message: 'Gmail login connect nahi ho paya. Page refresh karke ya Chrome browser me popup allow karke dobara try karein.',
+    };
+  }
   if (code === 'auth/network-request-failed') {
     return {
       message: 'Internet connection kamzor hai. Apna network check karke dobara try karein.',
     };
+  }
+
+  if (isGoogle && code) {
+    console.error('Google Sign-In error:', code, err?.message);
   }
 
   return {

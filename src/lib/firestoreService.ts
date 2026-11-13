@@ -314,13 +314,16 @@ export async function syncUserSession(
         const existingDoc = byUid.docs[0];
         studentProfile = { id: existingDoc.id, ...(existingDoc.data() as Omit<StudentRecord, 'id'>) };
 
-        // Sync updated name / mobile on existing student profile after OTP verification or login
+        // Sync updated name / mobile / Google photo on existing student profile
         const studentPatch: Record<string, string> = {};
         if (signupInfo?.name?.trim() && signupInfo.name.trim() !== studentProfile.name) {
           studentPatch.name = signupInfo.name.trim().slice(0, 120);
         }
         if (resolvedMobile && resolvedMobile !== studentProfile.mobile) {
           studentPatch.mobile = resolvedMobile.slice(0, 20);
+        }
+        if (user.photoURL && !studentProfile.photoUrl) {
+          studentPatch.photoUrl = user.photoURL;
         }
         if (Object.keys(studentPatch).length > 0) {
           studentPatch.updatedAt = now;

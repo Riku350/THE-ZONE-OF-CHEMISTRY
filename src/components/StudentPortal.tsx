@@ -111,6 +111,7 @@ export function StudentPortal() {
     firebaseUser,
     idToken,
     userProfile,
+    studentProfile,
     courses,
     settings,
     showToast,
@@ -282,7 +283,7 @@ export function StudentPortal() {
   useEffect(() => {
     if (firebaseUser) loadPortal();
     else setLoading(false);
-  }, [firebaseUser?.uid]);
+  }, [firebaseUser?.uid, studentProfile?.id]);
 
   if (!firebaseUser) {
     return (
