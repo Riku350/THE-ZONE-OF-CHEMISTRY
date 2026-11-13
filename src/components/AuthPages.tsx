@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { ConfirmationResult, RecaptchaVerifier } from 'firebase/auth';
 import {
   ArrowRight,
   CheckCircle2,
@@ -7,59 +8,82 @@ import {
   KeyRound,
   Lock,
   Mail,
+  MessageSquareCode,
+  Phone,
   RefreshCw,
   ShieldCheck,
+  User,
 } from 'lucide-react';
+import { auth } from '../lib/firebase.ts';
 import { useApp } from '../context/AppContext.tsx';
 import { BackBar } from './BackBar.tsx';
 
-function getFriendlyAuthError(
+function GoogleIcon() {
+  return (
+    <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        fill="#4285F4"
+        d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17Z"
+      />
+      <path
+        fill="#34A853"
+        d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.11-6.72-4.96H1.29v3.14C3.26 21.3 7.31 24 12 24Z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M5.28 14.24c-.24-.72-.38-1.49-.38-2.24s.14-1.52.38-2.24V6.62H1.29C.47 8.24 0 10.06 0 12s.47 3.76 1.29 5.38l3.99-3.14Z"
+      />
+      <path
+        fill="#EA4335"
+        d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.62l3.99 3.14c.95-2.85 3.6-4.96 6.72-4.96Z"
+      />
+    </svg>
+  );
+}
+
+function getEmailAuthError(
   err: any,
-  options?: { isAdmin?: boolean }
+  options?: { isAdmin?: boolean; isGoogle?: boolean; isOtp?: boolean }
 ): { message: string; notice?: string } {
   const code = err?.code || '';
   const isAdmin = Boolean(options?.isAdmin);
+  const isGoogle = Boolean(options?.isGoogle);
+  const isOtp = Boolean(options?.isOtp);
 
+  if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+    return {
+      message: 'Gmail login popup band kar diya gaya. Dobara "Continue with Gmail (Google)" par click karein.',
+    };
+  }
   if (code === 'auth/popup-blocked') {
     return {
-      message: 'Browser ne Google popup block kar diya hai. Kripya popup allow karein ya Email se login karein.',
-      notice: 'Popup blocked hai — browser settings me popup allow karein ya neeche Email aur Password se login karein.',
+      message: 'Browser ne Gmail login popup block kar diya hai. Browser settings me popup allow karein ya Mobile OTP se login karein.',
     };
   }
-  if (code === 'auth/popup-closed-by-user') {
+  if (code === 'auth/account-exists-with-different-credential') {
     return {
-      message: 'Google login window poora hone se pehle band ho gayi. Dobara try karein.',
-    };
-  }
-  if (code === 'auth/cancelled-popup-request') {
-    return {
-      message: 'Google login window pehle se khuli hai. Kripya usi window ko complete karein.',
-    };
-  }
-  if (code === 'auth/unauthorized-domain') {
-    const host = typeof window !== 'undefined' ? window.location.hostname : 'this domain';
-    console.warn(`Google Sign-In domain authorization pending for "${host}".`);
-    if (isAdmin) {
-      return {
-        message: `Is domain (${host}) par Google Sign-In abhi authorized nahi hai.`,
-        notice: `Firebase Console → Authentication → Settings → Authorized domains me "${host}" add karein, ya neeche verified Admin Email aur Password se sign in karein.`,
-      };
-    }
-    return {
-      message: 'Google Login abhi is website par temporary unavailable hai. Kripya Email aur Password se Sign In karein.',
-      notice: 'Google Login abhi uplabdh nahi hai. Kripya neeche apna Email aur Password daalkar Sign In ya Naya Account banayein.',
+      message: 'Is Gmail se account pehle se bana hai. Kripya Mobile/Email Password ya original login method se sign in karein.',
     };
   }
   if (code === 'auth/operation-not-allowed') {
     if (isAdmin) {
       return {
-        message: 'Sign-in provider Firebase Console me enabled nahi hai.',
-        notice: 'Firebase Console → Authentication → Sign-in method me Google aur Email/Password enable karein.',
+        message: 'Selected Sign-in method Firebase Console me enabled nahi hai.',
+        notice: 'Firebase Console → Authentication → Sign-in method me Google aur Email/Password provider enable karein.',
       };
     }
+    if (isOtp) {
+      console.warn('Phone Auth is disabled in Firebase Console. Enable Sign-in method -> Phone for project gen-lang-client-0586369088.');
+      return {
+        message:
+          'Mobile OTP abhi activate ho raha hai. Tab tak aap upar "Continue with Gmail (Google)" button par click karke turant login kar sakte hain.',
+      };
+    }
+    console.warn('Email/Password Auth is disabled in Firebase Console. Enable Sign-in method -> Email/Password for project gen-lang-client-0586369088.');
     return {
-      message: 'Yeh login tarika abhi chalu nahi hai. Kripya Email aur Password use karein.',
-      notice: 'Kripya neeche Email aur Password se Sign In karein.',
+      message: isGoogle
+        ? 'Abhi Gmail login uplabdh nahi hai. Kripya Mobile OTP se try karein.'
+        : 'Password login abhi activate ho raha hai. Aap upar "Continue with Gmail (Google)" button se direct login kar sakte hain.',
     };
   }
   if (
@@ -68,12 +92,12 @@ function getFriendlyAuthError(
     code === 'auth/user-not-found'
   ) {
     return {
-      message: 'Galat email ya password. Kripya check karke dobara try karein ya password reset karein.',
+      message: 'Galat Mobile Number / Email ya Password. Kripya check karke dobara try karein.',
     };
   }
   if (code === 'auth/email-already-in-use') {
     return {
-      message: 'Is email se account pehle se bana hai. Kripya Sign In karein.',
+      message: 'Is Mobile Number ya Email se account pehle se bana hai. Kripya Sign In ya Gmail Login karein.',
     };
   }
   if (code === 'auth/weak-password') {
@@ -83,17 +107,53 @@ function getFriendlyAuthError(
   }
   if (code === 'auth/invalid-email') {
     return {
-      message: 'Kripya sahi email address darj karein.',
+      message: 'Kripya sahi 10-digit Mobile Number ya Email address darj karein.',
     };
   }
-  if (code === 'auth/account-exists-with-different-credential') {
+  if (code === 'auth/invalid-phone-number') {
     return {
-      message: 'Yeh email kisi aur login tarike se registered hai. Kripya usi tarike se Sign In karein.',
+      message: 'Kripya sahi 10-digit Mobile Number darj karein.',
+    };
+  }
+  if (code === 'auth/invalid-verification-code') {
+    return {
+      message: 'Galat OTP code. Kripya SMS me aaya sahi 6-digit OTP darj karein.',
+    };
+  }
+  if (code === 'auth/code-expired') {
+    return {
+      message: 'OTP expire ho gaya hai. Kripya dobara Send OTP par click karein.',
+    };
+  }
+  if (code === 'auth/unauthorized-domain') {
+    const host = typeof window !== 'undefined' ? window.location.hostname : '';
+    console.warn('Auth unauthorized domain:', host);
+    if (isAdmin) {
+      return {
+        message: 'Is website domain par Google/OTP auth authorized nahi hai.',
+        notice: `Firebase Console → Authentication → Settings → Authorized domains me "${host || 'current domain'}" add karein.`,
+      };
+    }
+    return {
+      message: isGoogle
+        ? 'Is website link par Gmail login abhi enable ho raha hai. Tab tak aap Mobile/Email Password se login kar sakte hain.'
+        : 'Mobile OTP abhi is domain par available nahi hai. Kripya Gmail ya Mobile/Email Password se login karein.',
+    };
+  }
+  if (
+    code === 'auth/captcha-check-failed' ||
+    code === 'auth/billing-not-enabled' ||
+    code === 'auth/quota-exceeded'
+  ) {
+    console.warn('Phone OTP auth unavailable:', code);
+    return {
+      message:
+        'Mobile OTP SMS abhi uplabdh nahi hai. Aap upar "Continue with Gmail" ya "Mobile / Email Password" tab se turant account bana sakte hain.',
     };
   }
   if (code === 'auth/too-many-requests') {
     return {
-      message: 'Bahut zyada galat prayas ho gaye hain. Thodi der baad dobara try karein.',
+      message: 'Bahut zyada prayas ho gaye hain. Thodi der baad dobara try karein.',
     };
   }
   if (code === 'auth/user-disabled') {
@@ -109,8 +169,8 @@ function getFriendlyAuthError(
 
   return {
     message: isAdmin
-      ? 'Admin login complete nahi ho paya. Kripya details check karke dobara try karein.'
-      : 'Login nahi ho paya. Kripya apna email/password check karke dobara try karein.',
+      ? 'Admin login complete nahi ho paya. Kripya email aur password check karein.'
+      : 'Login nahi ho paya. Kripya apni details check karke dobara try karein.',
   };
 }
 
@@ -123,16 +183,32 @@ export function StudentLoginPage() {
     signInWithGoogle,
     signInWithEmail,
     registerWithEmail,
+    sendPhoneOtp,
+    confirmPhoneOtp,
     sendPasswordReset,
     navigate,
     showToast,
   } = useApp();
 
+  const [authTab, setAuthTab] = useState<'otp' | 'password'>('otp');
   const [mode, setMode] = useState<'login' | 'register' | 'reset'>('login');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [name, setName] = useState('');
+  const [identifier, setIdentifier] = useState('');
+  const [email, setEmail] = useState('');
+  const [mobile, setMobile] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  // Phone OTP state
+  const [otpMobile, setOtpMobile] = useState('');
+  const [otpName, setOtpName] = useState('');
+  const [otpCode, setOtpCode] = useState('');
+  const [otpConfirmation, setOtpConfirmation] = useState<ConfirmationResult | null>(null);
+  const [otpCooldown, setOtpCooldown] = useState(0);
+  const recaptchaRef = useRef<RecaptchaVerifier | null>(null);
+
   const [loading, setLoading] = useState(false);
   const [errorNotice, setErrorNotice] = useState('');
   const [resetSentMsg, setResetSentMsg] = useState('');
@@ -146,57 +222,159 @@ export function StudentLoginPage() {
     [navigate]
   );
 
-  // Redirect automatically if student/teacher/admin is already signed in
   useEffect(() => {
     if (authReady && firebaseUser && role && !isAccountBlocked) {
       routeByRole(role);
     }
   }, [authReady, firebaseUser, role, isAccountBlocked, routeByRole]);
 
+  useEffect(() => {
+    if (otpCooldown <= 0) return;
+    const t = setInterval(() => {
+      setOtpCooldown((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(t);
+  }, [otpCooldown]);
+
+  const resetRecaptcha = useCallback(() => {
+    try {
+      recaptchaRef.current?.clear();
+    } catch {
+      // ignore cleanup error
+    }
+    recaptchaRef.current = null;
+    const el = document.getElementById('zoc-otp-recaptcha');
+    if (el) el.innerHTML = '';
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      resetRecaptcha();
+    };
+  }, [resetRecaptcha]);
+
+  function switchTab(nextTab: 'otp' | 'password') {
+    setAuthTab(nextTab);
+    setErrorNotice('');
+    setResetSentMsg('');
+  }
+
   function switchMode(next: 'login' | 'register' | 'reset') {
     setMode(next);
     setErrorNotice('');
     setResetSentMsg('');
+    setShowPassword(false);
+    setShowConfirmPassword(false);
   }
 
-  async function handleGoogle() {
-    setLoading(true);
-    setErrorNotice('');
-    setResetSentMsg('');
-    try {
-      const res = await signInWithGoogle();
-      showToast('Login successful! Aapka dashboard khul raha hai.', 'success');
-      routeByRole(res.role);
-    } catch (err: any) {
-      const parsed = getFriendlyAuthError(err, { isAdmin: false });
-      setErrorNotice(parsed.notice || parsed.message);
-      showToast(parsed.message, 'error');
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleSubmit(e: React.FormEvent) {
+  async function handlePasswordSubmit(e: React.FormEvent) {
     e.preventDefault();
     setErrorNotice('');
     setResetSentMsg('');
 
-    const cleanEmail = email.trim();
-    if (!cleanEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
-      const msg = 'Kripya sahi email address darj karein.';
+    if (mode === 'register') {
+      const cleanName = name.trim();
+      let cleanMobile = mobile.replace(/\D/g, '');
+      if (cleanMobile.length === 12 && cleanMobile.startsWith('91')) cleanMobile = cleanMobile.slice(2);
+      const cleanEmail = email.trim().toLowerCase();
+
+      if (cleanName.length < 2) {
+        const msg = 'Kripya apna poora naam darj karein.';
+        setErrorNotice(msg);
+        showToast(msg, 'error');
+        return;
+      }
+      if (cleanMobile.length !== 10) {
+        const msg = 'Kripya sahi 10-digit Mobile Number darj karein.';
+        setErrorNotice(msg);
+        showToast(msg, 'error');
+        return;
+      }
+      if (cleanEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+        const msg = 'Kripya sahi Email address darj karein (ya khali chhod dein).';
+        setErrorNotice(msg);
+        showToast(msg, 'error');
+        return;
+      }
+      if (password.length < 6) {
+        const msg = 'Password kam se kam 6 characters ka hona chahiye.';
+        setErrorNotice(msg);
+        showToast(msg, 'error');
+        return;
+      }
+      if (password !== confirmPassword) {
+        const msg = 'Password aur Confirm Password match nahi kar rahe hain.';
+        setErrorNotice(msg);
+        showToast(msg, 'error');
+        return;
+      }
+
+      setLoading(true);
+      try {
+        const res = await registerWithEmail(cleanEmail, password, cleanName, cleanMobile);
+        const idNote = res.studentId ? ` Aapka Student ID: ${res.studentId}` : '';
+        showToast(`Account ban gaya hai!${idNote}`, 'success');
+        routeByRole(res.role);
+      } catch (err: any) {
+        const parsed = getEmailAuthError(err, { isAdmin: false });
+        setErrorNotice(parsed.notice || parsed.message);
+        showToast(parsed.message, 'error');
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
+    if (mode === 'reset') {
+      const cleanEmail = email.trim();
+      if (!cleanEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+        const msg = 'Password reset karne ke liye apna registered Email address darj karein.';
+        setErrorNotice(msg);
+        showToast(msg, 'error');
+        return;
+      }
+      setLoading(true);
+      try {
+        await sendPasswordReset(cleanEmail);
+        const msg = `${cleanEmail} par password reset email bhej diya gaya hai. Inbox aur Spam folder check karein.`;
+        setResetSentMsg(msg);
+        showToast('Password reset link aapke email par bhej diya gaya hai.', 'success');
+        setMode('login');
+      } catch (err: any) {
+        const parsed = getEmailAuthError(err, { isAdmin: false });
+        setErrorNotice(parsed.notice || parsed.message);
+        showToast(parsed.message, 'error');
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
+    // Login with Email or Mobile Number + Password
+    const rawId = identifier.trim();
+    if (!rawId) {
+      const msg = 'Kripya apna Mobile Number ya Email darj karein.';
+      setErrorNotice(msg);
+      showToast(msg, 'error');
+      return;
+    }
+    if (!rawId.includes('@')) {
+      let digits = rawId.replace(/\D/g, '');
+      if (digits.length === 12 && digits.startsWith('91')) digits = digits.slice(2);
+      if (digits.length !== 10) {
+        const msg = 'Kripya sahi 10-digit Mobile Number ya Email address darj karein.';
+        setErrorNotice(msg);
+        showToast(msg, 'error');
+        return;
+      }
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rawId)) {
+      const msg = 'Kripya sahi Email address darj karein.';
       setErrorNotice(msg);
       showToast(msg, 'error');
       return;
     }
 
-    if (mode === 'register' && name.trim().length < 2) {
-      const msg = 'Kripya apna poora naam darj karein.';
-      setErrorNotice(msg);
-      showToast(msg, 'error');
-      return;
-    }
-
-    if (mode !== 'reset' && password.length < 6) {
+    if (password.length < 6) {
       const msg = 'Password kam se kam 6 characters ka hona chahiye.';
       setErrorNotice(msg);
       showToast(msg, 'error');
@@ -205,24 +383,100 @@ export function StudentLoginPage() {
 
     setLoading(true);
     try {
-      if (mode === 'reset') {
-        await sendPasswordReset(cleanEmail);
-        const msg = `${cleanEmail} par password reset link bhej diya gaya hai. Email na mile to Spam folder bhi check karein.`;
-        setResetSentMsg(msg);
-        showToast('Password reset link aapke email par bhej diya gaya hai.', 'success');
-        setMode('login');
-      } else if (mode === 'register') {
-        const res = await registerWithEmail(cleanEmail, password, name);
-        showToast('Account ban gaya hai! Aapka dashboard khul raha hai.', 'success');
-        routeByRole(res.role);
-      } else {
-        const res = await signInWithEmail(cleanEmail, password);
-        showToast('Swagat hai! Login successful.', 'success');
-        routeByRole(res.role);
-      }
+      const res = await signInWithEmail(rawId, password);
+      showToast('Swagat hai! Login successful.', 'success');
+      routeByRole(res.role);
     } catch (err: any) {
-      const parsed = getFriendlyAuthError(err, { isAdmin: false });
+      const parsed = getEmailAuthError(err, { isAdmin: false });
       setErrorNotice(parsed.notice || parsed.message);
+      showToast(parsed.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function triggerSendOtp() {
+    setErrorNotice('');
+    setResetSentMsg('');
+
+    let digits = otpMobile.replace(/\D/g, '');
+    if (digits.length === 12 && digits.startsWith('91')) digits = digits.slice(2);
+    if (digits.length !== 10 && !otpMobile.trim().startsWith('+')) {
+      const msg = 'Kripya sahi 10-digit Mobile Number darj karein.';
+      setErrorNotice(msg);
+      showToast(msg, 'error');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      resetRecaptcha();
+      const verifier = new RecaptchaVerifier(auth, 'zoc-otp-recaptcha', {
+        size: 'invisible',
+        'expired-callback': () => {
+          resetRecaptcha();
+        },
+      });
+      recaptchaRef.current = verifier;
+      const confirmation = await sendPhoneOtp(otpMobile.trim(), verifier);
+      setOtpConfirmation(confirmation);
+      setOtpCode('');
+      setOtpCooldown(30);
+      showToast('Aapke Mobile Number par 6-digit OTP bhej diya gaya hai.', 'success');
+    } catch (err: any) {
+      resetRecaptcha();
+      const parsed = getEmailAuthError(err, { isAdmin: false, isOtp: true });
+      setErrorNotice(parsed.message);
+      showToast(parsed.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleSendOtp(e: React.FormEvent) {
+    e.preventDefault();
+    await triggerSendOtp();
+  }
+
+  async function handleVerifyOtp(e: React.FormEvent) {
+    e.preventDefault();
+    if (!otpConfirmation) return;
+    setErrorNotice('');
+
+    if (otpCode.trim().length < 6) {
+      const msg = 'Kripya 6-digit OTP code darj karein.';
+      setErrorNotice(msg);
+      showToast(msg, 'error');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await confirmPhoneOtp(otpConfirmation, otpCode, otpName, otpMobile);
+      const idNote = res.studentId ? ` Aapka Student ID: ${res.studentId}` : '';
+      showToast(`Mobile verification successful!${idNote}`, 'success');
+      routeByRole(res.role);
+    } catch (err: any) {
+      const parsed = getEmailAuthError(err, { isAdmin: false, isOtp: true });
+      setErrorNotice(parsed.message);
+      showToast(parsed.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleGoogleLogin() {
+    setErrorNotice('');
+    setResetSentMsg('');
+    setLoading(true);
+    try {
+      const res = await signInWithGoogle();
+      const idNote = res.studentId && res.role === 'student' ? ` Student ID: ${res.studentId}` : '';
+      showToast(`Gmail login successful!${idNote}`, 'success');
+      routeByRole(res.role);
+    } catch (err: any) {
+      const parsed = getEmailAuthError(err, { isAdmin: false, isGoogle: true });
+      setErrorNotice(parsed.message);
       showToast(parsed.message, 'error');
     } finally {
       setLoading(false);
@@ -234,14 +488,69 @@ export function StudentLoginPage() {
       <BackBar title="Account Sign In" backLabel="Back" fallbackPath="/" />
       <div className="flex-1 flex items-center justify-center px-4 py-8">
         <div className="max-w-md w-full bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 sm:p-8 shadow-xs">
-          <div className="mb-6">
+          <div className="mb-5">
             <p className="text-xs font-semibold text-blue-700 dark:text-sky-400 mb-1">Student &amp; Teacher Portal</p>
             <h2 className="text-2xl font-bold text-slate-900 dark:text-white">
-              {mode === 'login' ? 'Sign In to Your Portal' : mode === 'register' ? 'Create Student Account' : 'Reset Password'}
+              {authTab === 'otp'
+                ? 'Login with Mobile OTP or Gmail'
+                : mode === 'login'
+                ? 'Sign In to Your Portal'
+                : mode === 'register'
+                ? 'Create Student Account'
+                : 'Reset Password'}
             </h2>
             <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-              Access live classes, recorded lectures, study PDFs, attendance, tests, and fee receipts.
+              {authTab === 'otp'
+                ? 'Direct Gmail ya 10-digit Mobile OTP se turant portal kholein.'
+                : mode === 'register'
+                ? 'Apna Naam, Mobile Number ya Gmail daalkar turant Student Account banayein.'
+                : mode === 'reset'
+                ? 'Apna registered Email darj karein. Hum aapko password reset link bhejenge.'
+                : 'Apne Gmail, Mobile Number ya Email Password se Sign In karein.'}
             </p>
+          </div>
+
+          {/* Direct Gmail (Google) Sign-In */}
+          <button
+            type="button"
+            disabled={loading}
+            onClick={handleGoogleLogin}
+            className="w-full min-h-[44px] py-2.5 px-4 text-sm font-semibold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 rounded-xl flex items-center justify-center gap-2.5 shadow-xs transition-colors disabled:opacity-60"
+          >
+            <GoogleIcon />
+            <span>Continue with Gmail (Google)</span>
+          </button>
+
+          <div className="my-4 flex items-center gap-3">
+            <div className="h-px flex-1 bg-slate-200 dark:bg-slate-800" />
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Or with Mobile / Email</span>
+            <div className="h-px flex-1 bg-slate-200 dark:bg-slate-800" />
+          </div>
+
+          {/* Auth Method Switcher */}
+          <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-slate-100 dark:bg-slate-800 mb-5">
+            <button
+              type="button"
+              onClick={() => switchTab('otp')}
+              className={`min-h-[38px] rounded-lg text-xs font-semibold transition-colors ${
+                authTab === 'otp'
+                  ? 'bg-white dark:bg-slate-900 text-blue-700 dark:text-sky-400 shadow-xs'
+                  : 'text-slate-600 dark:text-slate-300'
+              }`}
+            >
+              Mobile OTP Login
+            </button>
+            <button
+              type="button"
+              onClick={() => switchTab('password')}
+              className={`min-h-[38px] rounded-lg text-xs font-semibold transition-colors ${
+                authTab === 'password'
+                  ? 'bg-white dark:bg-slate-900 text-blue-700 dark:text-sky-400 shadow-xs'
+                  : 'text-slate-600 dark:text-slate-300'
+              }`}
+            >
+              Mobile / Email Password
+            </button>
           </div>
 
           {resetSentMsg && (
@@ -257,106 +566,310 @@ export function StudentLoginPage() {
             </div>
           )}
 
-          <button
-            type="button"
-            onClick={handleGoogle}
-            disabled={loading}
-            className="w-full min-h-[44px] py-2.5 px-4 mb-5 border border-slate-300 dark:border-slate-700 rounded-xl text-sm font-semibold text-slate-800 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center justify-center gap-2.5 disabled:opacity-60"
-          >
-            <span className="w-5 h-5 rounded-full bg-blue-700 text-white text-[11px] font-bold flex items-center justify-center">G</span>
-            {loading ? 'Connecting...' : 'Continue with Google'}
-          </button>
-
-          <div className="relative flex py-2 items-center mb-5">
-            <div className="flex-grow border-t border-slate-200 dark:border-slate-800" />
-            <span className="flex-shrink mx-3 text-xs text-slate-400">or use email &amp; password</span>
-            <div className="flex-grow border-t border-slate-200 dark:border-slate-800" />
-          </div>
-
-          <form onSubmit={handleSubmit} className="space-y-4" noValidate>
-            {mode === 'register' && (
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Student Full Name</label>
-                <input
-                  type="text"
-                  required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Apna poora naam likhein"
-                  className="w-full px-3.5 py-2.5 text-sm border border-slate-200 dark:border-slate-700 dark:bg-slate-800 rounded-xl"
-                />
-              </div>
-            )}
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Email Address</label>
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="student@gmail.com"
-                autoComplete="email"
-                className="w-full px-3.5 py-2.5 text-sm border border-slate-200 dark:border-slate-700 dark:bg-slate-800 rounded-xl"
-              />
-            </div>
-            {mode !== 'reset' && (
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Password</label>
-                <div className="relative">
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    required
-                    minLength={6}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••"
-                    autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
-                    className="w-full pl-3.5 pr-11 py-2.5 text-sm border border-slate-200 dark:border-slate-700 dark:bg-slate-800 rounded-xl"
-                  />
+          {authTab === 'otp' ? (
+            <div className="space-y-4">
+              {!otpConfirmation ? (
+                <form onSubmit={handleSendOtp} className="space-y-4" noValidate>
+                  <div>
+                    <label htmlFor="otp-mobile-input" className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                      Enter Mobile Number
+                    </label>
+                    <div className="relative flex items-center">
+                      <span className="pl-3 pr-2 py-2.5 text-sm font-semibold text-slate-500 border border-r-0 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 rounded-l-xl">
+                        +91
+                      </span>
+                      <input
+                        id="otp-mobile-input"
+                        type="tel"
+                        inputMode="tel"
+                        required
+                        value={otpMobile}
+                        onChange={(e) => setOtpMobile(e.target.value)}
+                        placeholder="Enter 10-digit mobile number"
+                        autoComplete="tel"
+                        className="w-full px-3.5 py-2.5 text-sm border border-slate-200 dark:border-slate-700 dark:bg-slate-800 rounded-r-xl"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label htmlFor="otp-name-input" className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                      Student Name <span className="font-normal text-slate-400">(New account ya name update ke liye)</span>
+                    </label>
+                    <div className="relative">
+                      <User className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        id="otp-name-input"
+                        type="text"
+                        value={otpName}
+                        onChange={(e) => setOtpName(e.target.value)}
+                        placeholder="Apna poora naam likhein"
+                        maxLength={120}
+                        className="w-full pl-9 pr-3.5 py-2.5 text-sm border border-slate-200 dark:border-slate-700 dark:bg-slate-800 rounded-xl"
+                      />
+                    </div>
+                  </div>
                   <button
-                    type="button"
-                    onClick={() => setShowPassword((prev) => !prev)}
-                    aria-label={showPassword ? 'Hide password' : 'Show password'}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                    type="submit"
+                    disabled={loading}
+                    className="w-full min-h-[44px] py-2.5 text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-xl flex items-center justify-center gap-2 disabled:opacity-60"
                   >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    {loading ? 'Sending OTP...' : 'Send OTP'}
+                    <ArrowRight className="w-4 h-4" />
                   </button>
-                </div>
+                </form>
+              ) : (
+                <form onSubmit={handleVerifyOtp} className="space-y-4" noValidate>
+                  <div className="px-3.5 py-2.5 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-100 dark:border-blue-900 text-xs text-blue-900 dark:text-sky-200 flex items-center justify-between gap-2">
+                    <span>OTP sent to +91 {otpMobile.replace(/^\+?91/, '')}</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOtpConfirmation(null);
+                        setOtpCode('');
+                        setErrorNotice('');
+                        resetRecaptcha();
+                      }}
+                      className="font-semibold text-blue-700 dark:text-sky-400 hover:underline shrink-0"
+                    >
+                      Change
+                    </button>
+                  </div>
+                  <div>
+                    <label htmlFor="otp-code-input" className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                      Enter OTP
+                    </label>
+                    <div className="relative">
+                      <MessageSquareCode className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        id="otp-code-input"
+                        type="text"
+                        inputMode="numeric"
+                        autoComplete="one-time-code"
+                        maxLength={6}
+                        required
+                        value={otpCode}
+                        onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
+                        placeholder="Enter 6-digit OTP"
+                        className="w-full pl-9 pr-3.5 py-2.5 text-sm tracking-widest font-mono border border-slate-200 dark:border-slate-700 dark:bg-slate-800 rounded-xl"
+                      />
+                    </div>
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="w-full min-h-[44px] py-2.5 text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-xl flex items-center justify-center gap-2 disabled:opacity-60"
+                  >
+                    {loading ? 'Verifying OTP...' : 'Verify OTP & Continue'}
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                  <div className="flex items-center justify-between text-xs pt-1">
+                    <button
+                      type="button"
+                      disabled={loading || otpCooldown > 0}
+                      onClick={triggerSendOtp}
+                      className="font-semibold text-blue-700 dark:text-sky-400 hover:underline disabled:text-slate-400 disabled:no-underline min-h-[36px]"
+                    >
+                      {otpCooldown > 0 ? `Resend OTP in ${otpCooldown}s` : 'Resend OTP'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOtpConfirmation(null);
+                        setOtpCode('');
+                        setErrorNotice('');
+                        resetRecaptcha();
+                      }}
+                      className="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 min-h-[36px]"
+                    >
+                      Change Number
+                    </button>
+                  </div>
+                </form>
+              )}
+              <div id="zoc-otp-recaptcha" />
+            </div>
+          ) : (
+            <>
+              <form onSubmit={handlePasswordSubmit} className="space-y-4" noValidate>
+                {mode === 'register' && (
+                  <>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Student Name</label>
+                      <div className="relative">
+                        <User className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="text"
+                          required
+                          value={name}
+                          onChange={(e) => setName(e.target.value)}
+                          placeholder="Apna poora naam likhein"
+                          autoComplete="name"
+                          className="w-full pl-9 pr-3.5 py-2.5 text-sm border border-slate-200 dark:border-slate-700 dark:bg-slate-800 rounded-xl"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Mobile Number</label>
+                      <div className="relative">
+                        <Phone className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="tel"
+                          required
+                          value={mobile}
+                          onChange={(e) => setMobile(e.target.value)}
+                          placeholder="10-digit mobile number"
+                          autoComplete="tel"
+                          className="w-full pl-9 pr-3.5 py-2.5 text-sm border border-slate-200 dark:border-slate-700 dark:bg-slate-800 rounded-xl"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                        Email Address <span className="font-normal text-slate-400">(Optional)</span>
+                      </label>
+                      <div className="relative">
+                        <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="email"
+                          value={email}
+                          onChange={(e) => setEmail(e.target.value)}
+                          placeholder="Email nahi hai to khali chhod dein"
+                          autoComplete="email"
+                          className="w-full pl-9 pr-3.5 py-2.5 text-sm border border-slate-200 dark:border-slate-700 dark:bg-slate-800 rounded-xl"
+                        />
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {mode === 'login' && (
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                      Mobile Number or Email Address
+                    </label>
+                    <div className="relative">
+                      <Phone className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        required
+                        value={identifier}
+                        onChange={(e) => setIdentifier(e.target.value)}
+                        placeholder="10-digit mobile number ya email"
+                        autoComplete="username"
+                        className="w-full pl-9 pr-3.5 py-2.5 text-sm border border-slate-200 dark:border-slate-700 dark:bg-slate-800 rounded-xl"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {mode === 'reset' && (
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Registered Email Address</label>
+                    <div className="relative">
+                      <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="email"
+                        required
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="student@gmail.com"
+                        autoComplete="email"
+                        className="w-full pl-9 pr-3.5 py-2.5 text-sm border border-slate-200 dark:border-slate-700 dark:bg-slate-800 rounded-xl"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {mode !== 'reset' && (
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Password</label>
+                    <div className="relative">
+                      <KeyRound className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type={showPassword ? 'text' : 'password'}
+                        required
+                        minLength={6}
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        placeholder="Minimum 6 characters"
+                        autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
+                        className="w-full pl-9 pr-11 py-2.5 text-sm border border-slate-200 dark:border-slate-700 dark:bg-slate-800 rounded-xl"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword((prev) => !prev)}
+                        aria-label={showPassword ? 'Hide password' : 'Show password'}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                      >
+                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {mode === 'register' && (
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Confirm Password</label>
+                    <div className="relative">
+                      <KeyRound className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type={showConfirmPassword ? 'text' : 'password'}
+                        required
+                        minLength={6}
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        placeholder="Password dobara likhein"
+                        autoComplete="new-password"
+                        className="w-full pl-9 pr-11 py-2.5 text-sm border border-slate-200 dark:border-slate-700 dark:bg-slate-800 rounded-xl"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowConfirmPassword((prev) => !prev)}
+                        aria-label={showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                      >
+                        {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full min-h-[44px] py-2.5 text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-xl flex items-center justify-center gap-2 disabled:opacity-60"
+                >
+                  {loading
+                    ? 'Please wait...'
+                    : mode === 'login'
+                    ? 'Sign In'
+                    : mode === 'register'
+                    ? 'Create Account'
+                    : 'Send Reset Link'}
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              </form>
+
+              <div className="mt-5 pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-600 dark:text-slate-400">
+                {mode === 'login' ? (
+                  <>
+                    <button type="button" onClick={() => switchMode('reset')} className="hover:text-blue-700 dark:hover:text-sky-400 min-h-[36px]">
+                      Forgot Password?
+                    </button>
+                    <button type="button" onClick={() => switchMode('register')} className="font-semibold text-blue-700 dark:text-sky-400 hover:underline min-h-[36px]">
+                      New Student Signup
+                    </button>
+                  </>
+                ) : (
+                  <button type="button" onClick={() => switchMode('login')} className="font-semibold text-blue-700 dark:text-sky-400 hover:underline min-h-[36px]">
+                    Back to Sign In
+                  </button>
+                )}
               </div>
-            )}
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full min-h-[44px] py-2.5 text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-xl flex items-center justify-center gap-2 disabled:opacity-60"
-            >
-              {loading
-                ? 'Please wait...'
-                : mode === 'login'
-                ? 'Sign In'
-                : mode === 'register'
-                ? 'Create Account'
-                : 'Send Reset Link'}
-              <ArrowRight className="w-4 h-4" />
-            </button>
-          </form>
-
-          <div className="mt-5 pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-600 dark:text-slate-400">
-            {mode === 'login' ? (
-              <>
-                <button type="button" onClick={() => switchMode('reset')} className="hover:text-blue-700 dark:hover:text-sky-400 min-h-[36px]">
-                  Forgot password?
-                </button>
-                <button type="button" onClick={() => switchMode('register')} className="font-semibold text-blue-700 dark:text-sky-400 hover:underline min-h-[36px]">
-                  New student signup
-                </button>
-              </>
-            ) : (
-              <button type="button" onClick={() => switchMode('login')} className="font-semibold text-blue-700 dark:text-sky-400 hover:underline min-h-[36px]">
-                Back to Sign In
-              </button>
-            )}
-          </div>
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -404,8 +917,53 @@ export function AdminLoginPage() {
     );
   }
 
-  // Handle unverified Email/Password account trying to verify as Admin
-  if (firebaseUser && !firebaseUser.emailVerified) {
+  const hasRealAdminEmail = Boolean(
+    firebaseUser?.email && !firebaseUser.email.endsWith('@mobile.thezoneofchemistry.in')
+  );
+  const mobileFromSyntheticEmail =
+    firebaseUser?.email && firebaseUser.email.endsWith('@mobile.thezoneofchemistry.in')
+      ? `+91 ${firebaseUser.email.replace('@mobile.thezoneofchemistry.in', '')}`
+      : '';
+  const signedInAccountLabel =
+    firebaseUser?.phoneNumber ||
+    mobileFromSyntheticEmail ||
+    (hasRealAdminEmail ? firebaseUser?.email : '') ||
+    'Student Account';
+
+  if (firebaseUser && role && role !== 'super_admin' && role !== 'admin') {
+    return (
+      <div className="min-h-[82vh] bg-slate-950 flex flex-col">
+        <BackBar title="Restricted Access" backLabel="Back" fallbackPath="/" />
+        <div className="flex-1 flex items-center justify-center px-4 py-8">
+          <div className="max-w-md w-full bg-white dark:bg-slate-900 rounded-2xl p-6 sm:p-8 border border-slate-200 dark:border-slate-800 text-center">
+            <Lock className="w-10 h-10 text-red-600 mx-auto mb-3" />
+            <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Admins Only</h2>
+            <p className="text-sm text-slate-600 dark:text-slate-400 mb-6">
+              You are signed in as {signedInAccountLabel}. Student and Teacher accounts cannot access the Admin Dashboard.
+            </p>
+            <div className="space-y-2.5">
+              <button
+                type="button"
+                onClick={() => navigate(role === 'teacher' ? '/teacher' : '/student')}
+                className="w-full min-h-[44px] py-2.5 text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-xl"
+              >
+                Go to {role === 'teacher' ? 'Teacher' : 'Student'} Portal
+              </button>
+              <button
+                type="button"
+                onClick={logout}
+                className="w-full min-h-[44px] py-2.5 text-xs font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 rounded-xl"
+              >
+                Sign Out
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (firebaseUser && hasRealAdminEmail && !firebaseUser.emailVerified) {
     return (
       <div className="min-h-[82vh] bg-slate-950 flex flex-col">
         <BackBar title="Admin Email Verification" backLabel="Back" fallbackPath="/" />
@@ -442,7 +1000,7 @@ export function AdminLoginPage() {
                     await resendVerificationEmail();
                     showToast('Verification email dobara bhej diya gaya hai.', 'success');
                   } catch (err: any) {
-                    const parsed = getFriendlyAuthError(err, { isAdmin: true });
+                    const parsed = getEmailAuthError(err, { isAdmin: true });
                     showToast(parsed.message, 'error');
                   } finally {
                     setLoading(false);
@@ -467,75 +1025,35 @@ export function AdminLoginPage() {
     );
   }
 
-  if (firebaseUser && role && role !== 'super_admin' && role !== 'admin') {
-    return (
-      <div className="min-h-[82vh] bg-slate-950 flex flex-col">
-        <BackBar title="Restricted Access" backLabel="Back" fallbackPath="/" />
-        <div className="flex-1 flex items-center justify-center px-4 py-8">
-          <div className="max-w-md w-full bg-white dark:bg-slate-900 rounded-2xl p-6 sm:p-8 border border-slate-200 dark:border-slate-800 text-center">
-            <Lock className="w-10 h-10 text-red-600 mx-auto mb-3" />
-            <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Admins Only</h2>
-            <p className="text-sm text-slate-600 dark:text-slate-400 mb-6">
-              You are signed in as {firebaseUser.email}. Regular user accounts cannot access the Admin Panel.
-            </p>
-            <div className="space-y-2.5">
-              <button
-                type="button"
-                onClick={() => navigate(role === 'teacher' ? '/teacher' : '/student')}
-                className="w-full min-h-[44px] py-2.5 text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-xl"
-              >
-                Go to My Portal
-              </button>
-              <button
-                type="button"
-                onClick={logout}
-                className="w-full min-h-[44px] py-2.5 text-xs font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 rounded-xl"
-              >
-                Sign Out
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  async function handleGoogleAdmin() {
-    setLoading(true);
+  async function handleEmailAdmin(e: React.FormEvent) {
+    e.preventDefault();
     setInfoMsg('');
+    const cleanEmail = email.trim();
+    if (!cleanEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      const msg = 'Kripya sahi Admin Email darj karein.';
+      setInfoMsg(msg);
+      showToast(msg, 'error');
+      return;
+    }
+    if (password.length < 6) {
+      const msg = 'Password kam se kam 6 characters ka hona chahiye.';
+      setInfoMsg(msg);
+      showToast(msg, 'error');
+      return;
+    }
+
+    setLoading(true);
     try {
-      const res = await signInWithGoogle();
+      const res = await signInWithEmail(cleanEmail, password);
       if (res.role === 'super_admin' || res.role === 'admin') {
         showToast('Admin verified. Opening Institute Dashboard.', 'success');
         navigate('/admin');
       } else {
-        showToast('Access Denied: Only authorized Institute Admins can open the Admin Panel.', 'error');
-        setInfoMsg(`Signed in as ${res.email}. Regular user accounts cannot access the Admin Panel.`);
+        showToast('Unauthorized: Only verified Admin accounts can access Admin Dashboard.', 'error');
+        setInfoMsg('Access restricted: Student and Teacher accounts cannot open the Admin Dashboard.');
       }
     } catch (err: any) {
-      const parsed = getFriendlyAuthError(err, { isAdmin: true });
-      if (parsed.notice) setInfoMsg(parsed.notice);
-      showToast(parsed.message, 'error');
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleEmailAdmin(e: React.FormEvent) {
-    e.preventDefault();
-    setLoading(true);
-    setInfoMsg('');
-    try {
-      const res = await signInWithEmail(email, password);
-      if (res.role === 'super_admin' || res.role === 'admin') {
-        showToast('Admin verified.', 'success');
-        navigate('/admin');
-      } else {
-        showToast('Unauthorized: Only verified Admin accounts can access this panel.', 'error');
-        setInfoMsg('Access restricted to authorized institute administrators only.');
-      }
-    } catch (err: any) {
-      const parsed = getFriendlyAuthError(err, { isAdmin: true });
+      const parsed = getEmailAuthError(err, { isAdmin: true });
       setInfoMsg(parsed.notice || parsed.message);
       showToast(parsed.message, 'error');
     } finally {
@@ -544,19 +1062,41 @@ export function AdminLoginPage() {
   }
 
   async function handleReset() {
-    if (!email.trim()) {
+    const cleanEmail = email.trim();
+    if (!cleanEmail) {
       const msg = 'Password reset link bhejne ke liye pehle Admin Email darj karein.';
       setInfoMsg(msg);
       showToast(msg, 'error');
       return;
     }
     try {
-      await sendPasswordReset(email);
-      setInfoMsg(`${email.trim()} par password reset email bhej diya gaya hai.`);
+      await sendPasswordReset(cleanEmail);
+      setInfoMsg(`${cleanEmail} par password reset email bhej diya gaya hai.`);
       showToast('Password reset email bhej diya gaya hai.', 'success');
     } catch (err: any) {
-      const parsed = getFriendlyAuthError(err, { isAdmin: true });
+      const parsed = getEmailAuthError(err, { isAdmin: true });
       showToast(parsed.message, 'error');
+    }
+  }
+
+  async function handleGoogleAdmin() {
+    setInfoMsg('');
+    setLoading(true);
+    try {
+      const res = await signInWithGoogle();
+      if (res.role === 'super_admin' || res.role === 'admin') {
+        showToast('Admin verified via Gmail. Opening Institute Dashboard.', 'success');
+        navigate('/admin');
+      } else {
+        showToast('Unauthorized: Only verified Admin accounts can access Admin Dashboard.', 'error');
+        setInfoMsg('Access restricted: Student and Teacher accounts cannot open the Admin Dashboard.');
+      }
+    } catch (err: any) {
+      const parsed = getEmailAuthError(err, { isAdmin: true, isGoogle: true });
+      setInfoMsg(parsed.notice || parsed.message);
+      showToast(parsed.message, 'error');
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -571,12 +1111,12 @@ export function AdminLoginPage() {
             </div>
             <div>
               <p className="text-xs font-semibold text-blue-700 dark:text-sky-400">Protected Institute Control</p>
-              <h2 className="text-xl font-bold text-slate-900 dark:text-white">Super Admin &amp; Admin Login</h2>
+              <h2 className="text-xl font-bold text-slate-900 dark:text-white">Admin &amp; Super Admin Login</h2>
             </div>
           </div>
 
           <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed mb-5">
-            Verified Authentication required. Admin and Super Admin access is strictly enforced for authorized institute accounts.
+            Authorized Admin Gmail or Email &amp; Password required. Student and Teacher accounts cannot open the Admin Dashboard.
           </p>
 
           {infoMsg && (
@@ -587,15 +1127,21 @@ export function AdminLoginPage() {
 
           <button
             type="button"
-            onClick={handleGoogleAdmin}
             disabled={loading}
-            className="w-full min-h-[44px] py-2.5 px-4 mb-5 bg-slate-900 dark:bg-blue-700 hover:bg-slate-800 dark:hover:bg-blue-800 text-white rounded-xl text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-60"
+            onClick={handleGoogleAdmin}
+            className="w-full min-h-[44px] py-2.5 px-4 text-sm font-semibold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 rounded-xl flex items-center justify-center gap-2.5 shadow-xs transition-colors disabled:opacity-60"
           >
-            <Lock className="w-4 h-4 text-sky-400" />
-            {loading ? 'Verifying with Google...' : 'Verify & Sign in with Google'}
+            <GoogleIcon />
+            <span>Sign in with Admin Gmail</span>
           </button>
 
-          <form onSubmit={handleEmailAdmin} className="space-y-3.5">
+          <div className="my-4 flex items-center gap-3">
+            <div className="h-px flex-1 bg-slate-200 dark:bg-slate-800" />
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Or Email &amp; Password</span>
+            <div className="h-px flex-1 bg-slate-200 dark:bg-slate-800" />
+          </div>
+
+          <form onSubmit={handleEmailAdmin} className="space-y-4" noValidate>
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Admin Email</label>
               <div className="relative">
@@ -641,13 +1187,13 @@ export function AdminLoginPage() {
               disabled={loading}
               className="w-full min-h-[44px] py-2.5 text-sm font-semibold text-white bg-blue-800 hover:bg-blue-900 rounded-xl disabled:opacity-60"
             >
-              {loading ? 'Signing in...' : 'Sign In with Password'}
+              {loading ? 'Signing in...' : 'Sign In to Admin Panel'}
             </button>
           </form>
 
           <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-600 dark:text-slate-400">
             <button type="button" onClick={handleReset} className="hover:text-blue-700 dark:hover:text-sky-400 min-h-[36px]">
-              Reset Password
+              Forgot Password?
             </button>
             <button type="button" onClick={() => navigate('/student-login')} className="font-semibold text-blue-700 dark:text-sky-400 hover:underline min-h-[36px]">
               Student / Teacher Login

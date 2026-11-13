@@ -1,11 +1,13 @@
 import React, { createContext, startTransition, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ConfirmationResult,
+  RecaptchaVerifier,
   User,
-  getRedirectResult,
   onAuthStateChanged,
   sendEmailVerification,
-  signInWithPopup,
   signInWithEmailAndPassword,
+  signInWithPhoneNumber,
+  signInWithPopup,
   createUserWithEmailAndPassword,
   sendPasswordResetEmail,
   signOut,
@@ -26,6 +28,8 @@ import {
   INITIAL_TIMETABLE,
 } from '../lib/seedData.ts';
 import {
+  MOBILE_AUTH_DOMAIN,
+  getCleanEmailFromAuthUser,
   markStudentLoggedOut,
   pingStudentHeartbeat,
   recordStudentLoginActivity,
@@ -105,9 +109,21 @@ interface AppContextValue {
   catalogLoading: boolean;
   toasts: ToastMessage[];
   showToast: (text: string, type?: 'success' | 'error' | 'info') => void;
-  signInWithGoogle: () => Promise<{ role: UserRole; email: string }>;
-  signInWithEmail: (email: string, password: string) => Promise<{ role: UserRole; email: string }>;
-  registerWithEmail: (email: string, password: string, name: string) => Promise<{ role: UserRole; email: string }>;
+  signInWithGoogle: () => Promise<{ role: UserRole; email: string; studentId?: string }>;
+  signInWithEmail: (identifier: string, password: string) => Promise<{ role: UserRole; email: string; studentId?: string }>;
+  registerWithEmail: (
+    email: string,
+    password: string,
+    name: string,
+    mobile: string
+  ) => Promise<{ role: UserRole; email: string; studentId?: string }>;
+  sendPhoneOtp: (mobile: string, verifier: RecaptchaVerifier) => Promise<ConfirmationResult>;
+  confirmPhoneOtp: (
+    confirmation: ConfirmationResult,
+    otp: string,
+    name?: string,
+    mobile?: string
+  ) => Promise<{ role: UserRole; email: string; studentId?: string }>;
   sendPasswordReset: (email: string) => Promise<void>;
   resendVerificationEmail: () => Promise<void>;
   logout: () => Promise<void>;
@@ -288,49 +304,56 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
 
-  const inFlightSyncRef = useRef<{ uid: string; promise: Promise<{ role: UserRole; email: string }> } | null>(null);
-  const pendingNameRef = useRef<string>('');
+  const inFlightSyncRef = useRef<{ uid: string; promise: Promise<{ role: UserRole; email: string; studentId?: string }> } | null>(null);
+  const pendingSignupRef = useRef<{ name?: string; mobile?: string } | null>(null);
 
-  const syncUser = useCallback(async (user: User): Promise<{ role: UserRole; email: string }> => {
-    if (inFlightSyncRef.current && inFlightSyncRef.current.uid === user.uid) {
-      return inFlightSyncRef.current.promise;
-    }
-    const run = (async () => {
-      try {
-        const token = await user.getIdToken();
-        setIdToken(token);
-        const preferredName = pendingNameRef.current || undefined;
-        const result = await syncUserSession(user, preferredName);
-        if (preferredName) pendingNameRef.current = '';
-        setUserProfile(result.profile);
-        setRole(result.role);
-        setStudentProfile(result.studentProfile);
-
-        if (!result.profile.isBlocked && result.role === 'student') {
-          const isNewSession = sessionLoggedUidRef.current !== user.uid;
-          sessionLoggedUidRef.current = user.uid;
-          const sid = await recordStudentLoginActivity(user, result.studentProfile, isNewSession);
-          if (sid) sessionDocIdRef.current = sid;
-        }
-        return { role: result.role, email: user.email || '' };
-      } finally {
-        if (inFlightSyncRef.current?.uid === user.uid) {
-          inFlightSyncRef.current = null;
-        }
+  const syncUser = useCallback(
+    async (
+      user: User,
+      overrideSignupInfo?: { name?: string; mobile?: string }
+    ): Promise<{ role: UserRole; email: string; studentId?: string }> => {
+      if (!overrideSignupInfo && inFlightSyncRef.current && inFlightSyncRef.current.uid === user.uid) {
+        return inFlightSyncRef.current.promise;
       }
-    })();
-    inFlightSyncRef.current = { uid: user.uid, promise: run };
-    return run;
-  }, []);
+      const run = (async () => {
+        try {
+          const token = await user.getIdToken();
+          setIdToken(token);
+          const signupInfo = overrideSignupInfo || pendingSignupRef.current || undefined;
+          const result = await syncUserSession(user, signupInfo);
+          setUserProfile(result.profile);
+          setRole(result.role);
+          setStudentProfile(result.studentProfile);
+
+          if (!result.profile.isBlocked && result.role === 'student') {
+            const isNewSession = sessionLoggedUidRef.current !== user.uid;
+            sessionLoggedUidRef.current = user.uid;
+            const sid = await recordStudentLoginActivity(user, result.studentProfile, isNewSession);
+            if (sid) sessionDocIdRef.current = sid;
+          }
+          return {
+            role: result.role,
+            email: getCleanEmailFromAuthUser(user.email),
+            studentId: result.studentProfile?.admissionId || result.profile.studentId,
+          };
+        } finally {
+          if (inFlightSyncRef.current?.uid === user.uid) {
+            inFlightSyncRef.current = null;
+          }
+        }
+      })();
+      if (!overrideSignupInfo) {
+        inFlightSyncRef.current = { uid: user.uid, promise: run };
+      }
+      return run;
+    },
+    []
+  );
 
   useEffect(() => {
     const connTimer = setTimeout(() => {
       testFirestoreConnection();
     }, 1500);
-
-    getRedirectResult(auth).catch((err) => {
-      console.warn('Auth redirect check:', err?.code || err?.message || err);
-    });
 
     const unsub = onAuthStateChanged(auth, async (user) => {
       setFirebaseUser(user);
@@ -553,26 +576,80 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return await syncUser(cred.user);
   };
 
-  const signInWithEmail = async (email: string, password: string) => {
-    const cleanEmail = email.trim();
-    const cred = await signInWithEmailAndPassword(auth, cleanEmail, password);
+  const signInWithEmail = async (identifier: string, password: string) => {
+    const raw = identifier.trim();
+    let authEmail = raw.toLowerCase();
+    if (!raw.includes('@')) {
+      let digits = raw.replace(/\D/g, '');
+      if (digits.length === 12 && digits.startsWith('91')) digits = digits.slice(2);
+      if (digits.length !== 10) {
+        throw Object.assign(new Error('Invalid mobile or email'), { code: 'auth/invalid-email' });
+      }
+      authEmail = `${digits}${MOBILE_AUTH_DOMAIN}`;
+    }
+    const cred = await signInWithEmailAndPassword(auth, authEmail, password);
     return await syncUser(cred.user);
   };
 
-  const registerWithEmail = async (email: string, password: string, name: string) => {
-    const cleanEmail = email.trim();
+  const registerWithEmail = async (email: string, password: string, name: string, mobile: string) => {
+    const cleanEmail = email.trim().toLowerCase();
     const cleanName = name.trim();
-    pendingNameRef.current = cleanName;
+    let cleanMobile = mobile.replace(/\D/g, '');
+    if (cleanMobile.length === 12 && cleanMobile.startsWith('91')) cleanMobile = cleanMobile.slice(2);
+    const authEmail = cleanEmail || `${cleanMobile}${MOBILE_AUTH_DOMAIN}`;
+    const signupPayload = { name: cleanName, mobile: cleanMobile };
+
+    pendingSignupRef.current = signupPayload;
     try {
-      const cred = await createUserWithEmailAndPassword(auth, cleanEmail, password);
+      const cred = await createUserWithEmailAndPassword(auth, authEmail, password);
       if (cleanName) {
-        await updateProfile(cred.user, { displayName: cleanName });
+        await updateProfile(cred.user, { displayName: cleanName }).catch(() => {});
       }
-      sendEmailVerification(cred.user).catch(() => {});
-      return await syncUser(cred.user);
-    } catch (err) {
-      pendingNameRef.current = '';
-      throw err;
+      if (cleanEmail) {
+        sendEmailVerification(cred.user).catch(() => {});
+      }
+      return await syncUser(cred.user, signupPayload);
+    } finally {
+      pendingSignupRef.current = null;
+    }
+  };
+
+  const sendPhoneOtp = async (mobile: string, verifier: RecaptchaVerifier) => {
+    const trimmed = mobile.trim();
+    let e164 = trimmed;
+    if (!trimmed.startsWith('+')) {
+      let digits = trimmed.replace(/\D/g, '');
+      if (digits.length === 12 && digits.startsWith('91')) digits = digits.slice(2);
+      if (digits.length !== 10) {
+        throw Object.assign(new Error('Invalid phone number'), { code: 'auth/invalid-phone-number' });
+      }
+      e164 = `+91${digits}`;
+    }
+    return await signInWithPhoneNumber(auth, e164, verifier);
+  };
+
+  const confirmPhoneOtp = async (
+    confirmation: ConfirmationResult,
+    otp: string,
+    name?: string,
+    mobile?: string
+  ) => {
+    const cleanName = name?.trim() || '';
+    let cleanMobile = (mobile || '').replace(/\D/g, '');
+    if (cleanMobile.length === 12 && cleanMobile.startsWith('91')) cleanMobile = cleanMobile.slice(2);
+    const signupPayload = {
+      ...(cleanName ? { name: cleanName } : {}),
+      ...(cleanMobile ? { mobile: cleanMobile } : {}),
+    };
+    pendingSignupRef.current = signupPayload;
+    try {
+      const cred = await confirmation.confirm(otp.trim());
+      if (cleanName) {
+        await updateProfile(cred.user, { displayName: cleanName }).catch(() => {});
+      }
+      return await syncUser(cred.user, signupPayload);
+    } finally {
+      pendingSignupRef.current = null;
     }
   };
 
@@ -666,6 +743,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       signInWithGoogle,
       signInWithEmail,
       registerWithEmail,
+      sendPhoneOtp,
+      confirmPhoneOtp,
       sendPasswordReset,
       resendVerificationEmail,
       logout,

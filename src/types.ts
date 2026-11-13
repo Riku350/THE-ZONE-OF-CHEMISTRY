@@ -26,6 +26,7 @@ export interface UserProfile {
   name: string;
   role: UserRole;
   status: 'active' | 'inactive';
+  studentId?: string;
   photoUrl?: string;
   phone?: string;
   address?: string;

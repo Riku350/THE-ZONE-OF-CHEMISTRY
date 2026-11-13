@@ -140,14 +140,52 @@ export async function seedInitialCatalogIfEmpty(): Promise<void> {
   }
 }
 
-export async function syncUserSession(user: User, preferredName?: string): Promise<{
+export const MOBILE_AUTH_DOMAIN = '@mobile.thezoneofchemistry.in';
+
+export function getCleanEmailFromAuthUser(userEmail?: string | null): string {
+  const clean = (userEmail || '').trim().toLowerCase();
+  if (!clean || clean.endsWith(MOBILE_AUTH_DOMAIN)) return '';
+  return clean;
+}
+
+export function extractPhoneFromAuthUser(user: User, fallbackMobile?: string): string {
+  if (fallbackMobile?.trim()) return fallbackMobile.trim();
+  const rawEmail = (user.email || '').trim().toLowerCase();
+  if (rawEmail.endsWith(MOBILE_AUTH_DOMAIN)) {
+    return rawEmail.slice(0, -MOBILE_AUTH_DOMAIN.length);
+  }
+  if (user.phoneNumber) {
+    const digits = user.phoneNumber.replace(/\D/g, '');
+    return digits.length === 12 && digits.startsWith('91') ? digits.slice(2) : user.phoneNumber;
+  }
+  return '';
+}
+
+export function generateUniqueStudentId(uid: string): string {
+  const year = new Date().getFullYear();
+  const rand = Math.floor(1000 + Math.random() * 9000);
+  const uidCode = uid.replace(/[^a-zA-Z0-9]/g, '').slice(0, 4).toUpperCase() || 'STDN';
+  return `ZOC-${year}-${rand}${uidCode}`;
+}
+
+export async function syncUserSession(
+  user: User,
+  signupInfo?: { name?: string; mobile?: string }
+): Promise<{
   profile: UserProfile;
   role: UserRole;
   studentProfile: StudentRecord | null;
 }> {
-  const email = (user.email || '').toLowerCase();
-  const isVerified = user.emailVerified === true;
-  const resolvedName = preferredName?.trim() || user.displayName || email.split('@')[0] || 'Student';
+  const email = getCleanEmailFromAuthUser(user.email);
+  const isVerified = user.emailVerified === true && Boolean(email);
+  const resolvedMobile = extractPhoneFromAuthUser(user, signupInfo?.mobile);
+  const resolvedName = (
+    signupInfo?.name?.trim() ||
+    user.displayName ||
+    (email ? email.split('@')[0] : '') ||
+    (resolvedMobile ? `Student ${resolvedMobile.slice(-4)}` : 'Student')
+  ).slice(0, 120);
+  const now = new Date().toISOString();
   let role: UserRole = 'student';
 
   try {
@@ -159,7 +197,7 @@ export async function syncUserSession(user: User, preferredName?: string): Promi
           uid: user.uid,
           email,
           role: 'super_admin',
-          updatedAt: new Date().toISOString(),
+          updatedAt: now,
         },
         { merge: true }
       );
@@ -173,7 +211,7 @@ export async function syncUserSession(user: User, preferredName?: string): Promi
           status: 'active',
           isBlocked: false,
           photoUrl: user.photoURL || '',
-          createdAt: new Date().toISOString(),
+          createdAt: now,
         },
         { merge: true }
       );
@@ -197,20 +235,49 @@ export async function syncUserSession(user: User, preferredName?: string): Promi
       }
 
       const userRef = doc(db, 'users', user.uid);
-      const userSnap = await getDoc(userRef).catch(() => null);
-      if (userSnap && !userSnap.exists()) {
+      const userSnap = await getDoc(userRef);
+      if (!userSnap.exists()) {
+        const generatedId = role === 'student' ? generateUniqueStudentId(user.uid) : undefined;
         await setDoc(userRef, {
           uid: user.uid,
           email,
           name: resolvedName,
+          phone: resolvedMobile.slice(0, 30),
+          ...(generatedId ? { studentId: generatedId } : {}),
           role: 'student',
           status: 'active',
           isBlocked: false,
           photoUrl: user.photoURL || '',
-          createdAt: new Date().toISOString(),
+          createdAt: now,
+          updatedAt: now,
         });
-      } else if (preferredName?.trim() && userSnap?.exists()) {
-        await setDoc(userRef, { name: preferredName.trim(), updatedAt: new Date().toISOString() }, { merge: true }).catch(() => {});
+      } else {
+        const existingData = userSnap.data() as UserProfile;
+        if (role === 'student' && existingData.role) {
+          role = existingData.role;
+        }
+        const patch: Record<string, string> = {};
+        if (signupInfo?.name?.trim()) {
+          patch.name = signupInfo.name.trim().slice(0, 120);
+        } else if (!existingData.name && resolvedName) {
+          patch.name = resolvedName;
+        }
+        if (resolvedMobile && resolvedMobile !== existingData.phone) {
+          patch.phone = resolvedMobile.slice(0, 30);
+        }
+        if (email && !existingData.email) {
+          patch.email = email.slice(0, 200);
+        }
+        if (user.photoURL && !existingData.photoUrl) {
+          patch.photoUrl = user.photoURL;
+        }
+        if (role === 'student' && !existingData.studentId) {
+          patch.studentId = generateUniqueStudentId(user.uid);
+        }
+        if (Object.keys(patch).length > 0 && existingData.isBlocked !== true) {
+          patch.updatedAt = now;
+          await setDoc(userRef, patch, { merge: true });
+        }
       }
     }
 
@@ -219,10 +286,12 @@ export async function syncUserSession(user: User, preferredName?: string): Promi
       uid: user.uid,
       email,
       name: resolvedName,
+      phone: resolvedMobile,
+      studentId: role === 'student' ? generateUniqueStudentId(user.uid) : undefined,
       role,
       status: 'active',
       photoUrl: user.photoURL || '',
-      createdAt: new Date().toISOString(),
+      createdAt: now,
     };
 
     // Auto-release expired temporary blocks
@@ -239,17 +308,72 @@ export async function syncUserSession(user: User, preferredName?: string): Promi
     }
 
     let studentProfile: StudentRecord | null = null;
-    if (email && !profile.isBlocked) {
+    if (!profile.isBlocked) {
       const byUid = await getDocs(query(collection(db, 'students'), where('uid', '==', user.uid))).catch(() => null);
       if (byUid && !byUid.empty) {
-        studentProfile = { id: byUid.docs[0].id, ...(byUid.docs[0].data() as Omit<StudentRecord, 'id'>) };
-      } else if (isVerified) {
+        const existingDoc = byUid.docs[0];
+        studentProfile = { id: existingDoc.id, ...(existingDoc.data() as Omit<StudentRecord, 'id'>) };
+
+        // Sync updated name / mobile on existing student profile after OTP verification or login
+        const studentPatch: Record<string, string> = {};
+        if (signupInfo?.name?.trim() && signupInfo.name.trim() !== studentProfile.name) {
+          studentPatch.name = signupInfo.name.trim().slice(0, 120);
+        }
+        if (resolvedMobile && resolvedMobile !== studentProfile.mobile) {
+          studentPatch.mobile = resolvedMobile.slice(0, 20);
+        }
+        if (Object.keys(studentPatch).length > 0) {
+          studentPatch.updatedAt = now;
+          await updateDoc(existingDoc.ref, studentPatch);
+          studentProfile = { ...studentProfile, ...studentPatch };
+        }
+
+        if (profile.studentId !== studentProfile.admissionId && studentProfile.admissionId) {
+          await setDoc(doc(db, 'users', user.uid), { studentId: studentProfile.admissionId }, { merge: true }).catch(() => {});
+          profile = { ...profile, studentId: studentProfile.admissionId };
+        }
+      } else if (email && isVerified) {
         const byEmail = await getDocs(query(collection(db, 'students'), where('email', '==', email))).catch(() => null);
         if (byEmail && !byEmail.empty) {
           const sDoc = byEmail.docs[0];
           await updateDoc(sDoc.ref, { uid: user.uid }).catch(() => {});
           studentProfile = { id: sDoc.id, ...(sDoc.data() as Omit<StudentRecord, 'id'>), uid: user.uid };
         }
+      }
+
+      // Auto-create student profile record with unique Student ID for newly signed-up students
+      if (!studentProfile && role === 'student') {
+        const assignedStudentId = profile.studentId || generateUniqueStudentId(user.uid);
+        const studentDoc: Omit<StudentRecord, 'id'> = {
+          uid: user.uid,
+          admissionId: assignedStudentId,
+          name: (profile.name || resolvedName).slice(0, 120),
+          fatherName: '',
+          motherName: '',
+          dob: profile.dob || '',
+          gender: '',
+          email: email.slice(0, 200),
+          mobile: (resolvedMobile || profile.phone || '').slice(0, 20),
+          whatsapp: (resolvedMobile || profile.phone || '').slice(0, 20),
+          address: profile.address || '',
+          schoolName: '',
+          studentClass: profile.studentClass || 'Class 12',
+          board: profile.board || 'CBSE',
+          examGoal: profile.examGoal || 'Class 12 Chemistry',
+          courseId: '',
+          courseName: 'General Chemistry Track',
+          batchId: '',
+          batchName: 'New Registration',
+          previousMarks: '',
+          guardianContact: '',
+          photoUrl: profile.photoUrl || '',
+          status: 'active',
+          isBlocked: false,
+          createdAt: now,
+          updatedAt: now,
+        };
+        await setDoc(doc(db, 'students', user.uid), studentDoc, { merge: true });
+        studentProfile = { id: user.uid, ...studentDoc };
       }
     }
 
@@ -273,12 +397,16 @@ export async function recordStudentLoginActivity(
     const prevSnap = await getDoc(actRef).catch(() => null);
     const prevCount = prevSnap?.exists() ? Number(prevSnap.data()?.totalLoginCount || 0) : 0;
 
+    const cleanEmail = getCleanEmailFromAuthUser(user.email);
+    const phone = extractPhoneFromAuthUser(user, studentProfile?.mobile);
+    const fallbackName = studentProfile?.name || user.displayName || (cleanEmail ? cleanEmail.split('@')[0] : phone || 'Student');
+
     await setDoc(
       actRef,
       {
         uid,
-        studentName: studentProfile?.name || user.displayName || user.email?.split('@')[0] || 'Student',
-        email: (user.email || '').toLowerCase(),
+        studentName: fallbackName,
+        email: cleanEmail || phone,
         admissionId: studentProfile?.admissionId || '',
         courseId: studentProfile?.courseId || '',
         courseName: studentProfile?.courseName || '',
@@ -296,8 +424,8 @@ export async function recordStudentLoginActivity(
     if (incrementLoginCount) {
       const sessRef = await addDoc(collection(db, 'login_sessions'), {
         uid,
-        studentName: studentProfile?.name || user.displayName || user.email?.split('@')[0] || 'Student',
-        email: (user.email || '').toLowerCase(),
+        studentName: fallbackName,
+        email: cleanEmail || phone,
         courseName: studentProfile?.courseName || '',
         batchId: studentProfile?.batchId || '',
         batchName: studentProfile?.batchName || '',
@@ -460,10 +588,12 @@ export async function enrollStudentInCourse(
 ): Promise<EnrollmentRecord> {
   try {
     const resolvedStatus: 'Active' | 'Pending' = Number(course.fees || 0) === 0 ? 'Active' : status;
+    const cleanEmail = getCleanEmailFromAuthUser(user.email);
+    const phone = extractPhoneFromAuthUser(user);
     const record: Omit<EnrollmentRecord, 'id'> = {
       studentUid: user.uid,
-      studentName: user.displayName || user.email?.split('@')[0] || 'Student',
-      studentEmail: (user.email || '').toLowerCase(),
+      studentName: user.displayName || (cleanEmail ? cleanEmail.split('@')[0] : phone || 'Student'),
+      studentEmail: cleanEmail || phone,
       courseId: course.id,
       courseTitle: course.title,
       batchId: batchId || '',

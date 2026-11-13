@@ -222,7 +222,8 @@ export function StudentPortal() {
     if (!firebaseUser) return;
     setLoading(true);
     try {
-      const d = await fetchStudentPortalData(firebaseUser.uid, firebaseUser.email || '');
+      const cleanEmail = firebaseUser.email?.endsWith('@mobile.thezoneofchemistry.in') ? '' : (firebaseUser.email || '');
+      const d = await fetchStudentPortalData(firebaseUser.uid, cleanEmail);
       setStudent(d.student || null);
       setAttendance(d.attendance || []);
       setFees(d.fees || []);
@@ -493,10 +494,14 @@ export function StudentPortal() {
     e.preventDefault();
     if (!firebaseUser || !deletionReason.trim()) return;
     try {
+      const contactInfo =
+        firebaseUser.email && !firebaseUser.email.endsWith('@mobile.thezoneofchemistry.in')
+          ? firebaseUser.email
+          : student?.mobile || userProfile?.phone || firebaseUser.phoneNumber || '';
       await submitDeletionRequest(
         firebaseUser.uid,
         student?.name || userProfile?.name || 'Student',
-        firebaseUser.email || '',
+        contactInfo,
         deletionReason
       );
       setDeletionReason('');
@@ -599,8 +604,12 @@ export function StudentPortal() {
               />
             </div>
             <div className="min-w-0">
-              <p className="text-sm font-bold text-slate-900 dark:text-white truncate">{student?.name || userProfile?.name || firebaseUser.email}</p>
-              <p className="text-xs font-mono text-blue-700 dark:text-sky-400 truncate">{student?.admissionId || 'Active Learner'}</p>
+              <p className="text-sm font-bold text-slate-900 dark:text-white truncate">
+                {student?.name || userProfile?.name || student?.mobile || userProfile?.phone || firebaseUser.phoneNumber || 'Student'}
+              </p>
+              <p className="text-xs font-mono text-blue-700 dark:text-sky-400 truncate">
+                {student?.admissionId || userProfile?.studentId || 'Active Learner'}
+              </p>
             </div>
           </div>
 
@@ -710,6 +719,7 @@ export function StudentPortal() {
                       <div>
                         <h2 className="text-xl font-bold">{student?.name || userProfile?.name || 'Student'}</h2>
                         <p className="text-xs text-sky-100 mt-0.5">
+                          {(student?.admissionId || userProfile?.studentId) ? `ID: ${student?.admissionId || userProfile?.studentId} · ` : ''}
                           {student ? `${student.courseName} · ${student.batchName}` : `${profileForm.examGoal} · Motihari`}
                         </p>
                       </div>
@@ -1590,9 +1600,9 @@ export function StudentPortal() {
                   <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6">
                     <div className="flex items-center justify-between mb-4">
                       <h2 className="text-xl font-bold text-slate-900 dark:text-white">My Student Profile</h2>
-                      {student?.admissionId && (
+                      {(student?.admissionId || userProfile?.studentId) && (
                         <span className="text-xs font-mono font-bold text-blue-700 dark:text-sky-400">
-                          {student.admissionId}
+                          {student?.admissionId || userProfile?.studentId}
                         </span>
                       )}
                     </div>

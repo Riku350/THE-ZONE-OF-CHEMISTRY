@@ -171,10 +171,22 @@ service cloud.firestore {
         resource.data.uid == request.auth.uid ||
         (isVerified() && resource.data.email == userEmail())
       ));
-      allow create, delete: if isAdmin();
+      allow create: if isAdmin() || (
+        isSignedIn() &&
+        studentId == request.auth.uid &&
+        isValidId(studentId) &&
+        request.resource.data.uid == request.auth.uid &&
+        request.resource.data.status == 'active' &&
+        request.resource.data.isBlocked != true &&
+        request.resource.data.name is string &&
+        request.resource.data.name.size() <= 120 &&
+        request.resource.data.email is string &&
+        request.resource.data.email.size() <= 200
+      );
+      allow delete: if isAdmin();
       allow update: if isAdmin() || (
         isNotBlocked() && resource.data.uid == request.auth.uid &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mobile', 'address', 'photoUrl', 'dob', 'studentClass', 'board', 'examGoal', 'updatedAt'])
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'mobile', 'address', 'photoUrl', 'dob', 'studentClass', 'board', 'examGoal', 'updatedAt'])
       ) || (
         isNotBlocked() && isVerified() && resource.data.email == userEmail() &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['uid']) &&

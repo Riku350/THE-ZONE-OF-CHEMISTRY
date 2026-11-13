@@ -92,6 +92,13 @@ function AdminRouteGuard() {
       (role === 'super_admin' || role === 'admin')
   );
 
+  const needsEmailVerification = Boolean(
+    firebaseUser &&
+      firebaseUser.email &&
+      !firebaseUser.email.endsWith('@mobile.thezoneofchemistry.in') &&
+      !firebaseUser.emailVerified
+  );
+
   if (!isAuthorizedAdmin) {
     return (
       <div className="min-h-[75vh] bg-slate-50 dark:bg-slate-950 flex flex-col">
@@ -104,9 +111,16 @@ function AdminRouteGuard() {
             Admin Panel — Admins Only
           </h2>
           <p className="text-sm text-slate-600 dark:text-slate-400 mb-6 leading-relaxed">
-            {firebaseUser
-              ? `Signed in as ${firebaseUser.email}. Regular user accounts cannot open the Institute Admin Panel.`
-              : 'Administrator sign-in is required to open the Institute Admin Panel.'}
+            {needsEmailVerification
+              ? `Signed in as ${firebaseUser?.email}. Email verification complete karne ke baad hi Admin Panel open hoga.`
+              : firebaseUser
+              ? `Signed in as ${
+                  firebaseUser.phoneNumber ||
+                  (firebaseUser.email && !firebaseUser.email.endsWith('@mobile.thezoneofchemistry.in')
+                    ? firebaseUser.email
+                    : 'Student Account')
+                }. Student and Teacher accounts cannot open the Institute Admin Panel.`
+              : 'Administrator Gmail or Email & Password sign-in is required to open the Institute Admin Panel.'}
           </p>
           <div className="flex flex-wrap items-center justify-center gap-3">
             <button
@@ -116,7 +130,15 @@ function AdminRouteGuard() {
             >
               Back to Home
             </button>
-            {firebaseUser ? (
+            {needsEmailVerification ? (
+              <button
+                type="button"
+                onClick={() => navigate('/admin-login')}
+                className="min-h-[44px] px-5 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl"
+              >
+                Verify Admin Email
+              </button>
+            ) : firebaseUser ? (
               <button
                 type="button"
                 onClick={() => navigate(role === 'teacher' ? '/teacher' : '/student')}

@@ -10,6 +10,7 @@
         "name": { "type": "string", "maxLength": 120 },
         "role": { "type": "string", "enum": ["super_admin", "admin", "teacher", "student"] },
         "status": { "type": "string", "enum": ["active", "inactive"] },
+        "studentId": { "type": "string", "maxLength": 40 },
         "photoUrl": { "type": "string", "maxLength": 1000000 },
         "phone": { "type": "string", "maxLength": 30 },
         "address": { "type": "string", "maxLength": 400 },

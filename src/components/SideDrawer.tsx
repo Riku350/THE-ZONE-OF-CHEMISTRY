@@ -44,9 +44,14 @@ export function SideDrawer() {
   if (!drawerOpen) return null;
 
   const displayName = studentProfile?.name || userProfile?.name || firebaseUser?.displayName || 'Guest Learner';
+  const cleanEmail = firebaseUser?.email?.endsWith('@mobile.thezoneofchemistry.in') ? '' : firebaseUser?.email;
   const displaySub =
     studentProfile?.admissionId ||
-    firebaseUser?.email ||
+    userProfile?.studentId ||
+    studentProfile?.mobile ||
+    userProfile?.phone ||
+    firebaseUser?.phoneNumber ||
+    cleanEmail ||
     'THE ZONE OF CHEMISTRY · Motihari';
   const photoUrl = studentProfile?.photoUrl || userProfile?.photoUrl || firebaseUser?.photoURL || '';
 
